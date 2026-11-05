@@ -1,0 +1,301 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nova POS</title><script>document.documentElement.dataset.theme=localStorage.getItem('pos-theme')||'light'</script><link rel="stylesheet" href="/static/pos.css"></head><body>
+<div class="shell">
+<nav>
+  <div class="brand"><span class="logo">◈</span><div><h1>Nova POS</h1><p id="store"></p></div></div>
+  <a data-s="dash" class="on">⬛ <span>Dashboard</span></a>
+  <a data-s="pos">🛒 <span>Point of Sale</span></a>
+  <a data-s="products">📦 <span>Products</span></a>
+  <a data-s="inv">📥 <span>Inventory</span></a>
+  <a data-s="orders">🧾 <span>Orders</span></a>
+  <a data-s="reports">📊 <span>Reports</span></a>
+  <a data-s="users" class="adm hide">👥 <span>Users</span></a>
+  <a data-s="settings">⚙️ <span>Settings</span></a>
+  <a data-s="docs">📖 <span>Docs</span></a>
+  <div class="foot"><b id="uname"></b><a id="themeTgl" style="cursor:pointer">☀️ Light mode</a><a id="logout" style="cursor:pointer;display:block;margin-top:6px">Sign out →</a></div>
+</nav>
+<main id="main"></main>
+</div>
+<div id="modal"></div>
+<script>
+const $=s=>document.querySelector(s), M=$("#main"), cur="$";
+let S={cart:[],products:[],boot:{}};
+const api=async(p,o)=>{const r=await fetch(p,{headers:{'Content-Type':'application/json'},...o,body:o&&o.body?JSON.stringify(o.body):undefined});const j=await r.json().catch(()=>({}));if(r.status===401){location.reload();throw j}if(!r.ok){toast(j.error||'Error',1);throw j}return j};
+const money=n=>(S.boot.settings?.currency||'$')+Number(n||0).toFixed(2);
+const toast=(m,bad)=>{const t=document.createElement('div');t.className='toast';if(bad)t.style.borderColor='var(--bad)';t.textContent=m;document.body.append(t);setTimeout(()=>t.remove(),2600)};
+const modal=h=>{$("#modal").innerHTML=`<div class="modal" onclick="if(event.target===this)closeM()"><div>${h}</div></div>`};
+const closeM=()=>$("#modal").innerHTML="";
+addEventListener('keydown',e=>{if(e.key==='Escape')closeM()});
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+const NAV={dash:pgDash,pos:pgPos,products:pgProducts,inv:pgInv,orders:pgOrders,reports:pgReports,users:pgUsers,settings:pgSettings,docs:pgDocs};
+window.renameShop=()=>modal(`<h3>Shop name</h3><form onsubmit="renameSave(event)"><label>Store name<input name="store_name" value="${esc(S.boot.settings.store_name)}" autofocus required></label>
+  <div class="row"><button type="button" class="btn" style="flex:1" onclick="closeM()">Cancel</button><button class="btn primary" style="flex:2">Rename</button></div></form>`);
+window.renameSave=async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target));
+  await api('/api/settings',{method:'PUT',body:d});S.boot.settings.store_name=d.store_name;store.textContent=d.store_name;
+  closeM();toast('Shop renamed to '+d.store_name)};
+document.querySelectorAll('nav a[data-s]').forEach(a=>a.onclick=()=>{document.querySelectorAll('nav a').forEach(x=>x.classList.remove('on'));a.classList.add('on');NAV[a.dataset.s]()});
+const tgl=document.getElementById('themeTgl');
+const themeLbl=()=>tgl.textContent=document.documentElement.dataset.theme==='light'?'🌙 Dark mode':'☀️ Light mode';
+tgl.onclick=()=>{document.documentElement.dataset.theme=document.documentElement.dataset.theme==='light'?'dark':'light';localStorage.setItem('pos-theme',document.documentElement.dataset.theme);themeLbl()};
+themeLbl();
+$("#logout").onclick=async()=>{await api('/api/logout',{method:'POST'});location.reload()};
+
+async function boot(){
+  S.boot=await api('/api/bootstrap');
+  uname.textContent=S.boot.user.name+' · '+S.boot.user.role;
+  store.textContent=S.boot.settings.store_name;
+  if(S.boot.user.role==='admin'){document.querySelectorAll('.adm').forEach(e=>e.classList.remove('hide'));
+    store.style.cursor='pointer';store.title='Click to rename shop';store.onclick=renameShop}
+  const h=location.hash.slice(1);
+  if(h&&NAV[h]){document.querySelectorAll('nav a').forEach(x=>x.classList.remove('on'));document.querySelector(`nav a[data-s="${h}"]`).classList.add('on');NAV[h]()}else pgDash();
+  if(S.boot.user.must_change)modal(`<h3>Set a new password</h3><p class="sub" style="margin-bottom:12px">Your password was reset — choose a new one to continue.</p>
+    <form onsubmit="forcePw(event)"><label>New password<input name="password" type="password" minlength="6" required autofocus></label>
+    <button class="btn primary block">Save password</button></form>`);
+}
+window.forcePw=async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target));
+  await api(`/api/users/${S.boot.user.id}/password`,{method:'POST',body:d});S.boot.user.must_change=false;closeM();toast('Password updated')};
+
+/* ---------- Dashboard ---------- */
+async function pgDash(){
+  const d=await api('/api/dashboard');
+  M.innerHTML=`<div class="top"><h1>Dashboard</h1><span class="sub">${new Date().toDateString()}</span></div>
+  <div class="grid cards">
+    <div class="card acc"><div class="k">Today's revenue</div><div class="v">${money(d.today.revenue)}</div><div class="s">${d.today.orders} orders</div></div>
+    <div class="card"><div class="k">Products</div><div class="v">${d.products}</div><div class="s">in catalogue</div></div>
+    <div class="card"><div class="k">Stock value</div><div class="v">${money(d.stock_value.v)}</div><div class="s">at cost</div></div>
+    <div class="card"><div class="k">Low stock</div><div class="v" style="color:var(--warn)">${d.low_stock.length}</div><div class="s">items ≤ 10 units</div></div>
+  </div>
+  <div class="grid cols">
+    <div class="card"><h2>Top sellers</h2><table><tr><th>Product</th><th style="text-align:right">Units sold</th></tr>
+      ${d.top.map(t=>`<tr><td>${esc(t.name)}</td><td style="text-align:right"><b>${t.qty}</b></td></tr>`).join('')||'<tr><td colspan=2>No sales yet</td></tr>'}</table></div>
+    <div class="card"><h2>Needs restock</h2><table><tr><th>Product</th><th style="text-align:right">Stock</th></tr>
+      ${d.low_stock.map(t=>`<tr><td>${esc(t.name)}</td><td style="text-align:right"><span class="badge warn">${t.stock} left</span></td></tr>`).join('')||'<tr><td colspan=2>All stocked ✓</td></tr>'}</table></div>
+    <div class="card"><h2>Expiring soon (30d)</h2><table><tr><th>Product</th><th style="text-align:right">Expiry</th></tr>
+      ${(d.expiring||[]).map(t=>`<tr><td>${esc(t.name)} <span class="sub">×${t.stock}</span></td><td style="text-align:right"><span class="badge ${new Date(t.expiry)<new Date()?'bad':'warn'}">${t.expiry}</span></td></tr>`).join('')||'<tr><td colspan=2>Nothing expiring</td></tr>'}</table></div>
+  </div>
+  <div class="card section"><h2>Recent orders</h2><table><tr><th>Invoice</th><th>Cashier</th><th>Time</th><th>Status</th><th style="text-align:right">Total</th></tr>
+    ${d.recent.map(r=>`<tr><td class="mono">${r.invoice_no}</td><td>${esc(r.cashier||'—')}</td><td>${r.created.slice(11,16)}</td><td><span class="badge ${r.status==='void'?'bad':'ok'}">${r.status}</span></td><td style="text-align:right"><b>${money(r.total)}</b></td></tr>`).join('')||'<tr><td colspan=5>No orders yet</td></tr>'}</table></div>`;
+}
+
+/* ---------- POS ---------- */
+async function pgPos(){
+  S.cart=[];
+  M.innerHTML=`<div class="top"><h1>Point of Sale</h1><span class="sub">Scan a barcode or click a product</span></div>
+  <div class="pos"><div>
+    <div class="searchbox"><input id="ps" placeholder="Search or scan barcode…" autocomplete="off"></div>
+    <div class="pgrid" id="pg"></div>
+  </div>
+  <div class="cart"><h2>Current sale</h2><div id="ci"></div>
+    <div class="total"><span>Total</span><b id="ct">KSh 0.00</b></div><p class="sub" id="cvat" style="margin:-8px 0 10px"></p>
+    <div class="row"><button class="btn" onclick="parkSale()">Park</button><button class="btn" id="hbtn" onclick="listHeld()">Held</button>
+    <button class="btn" onclick="S.cart=[];drawCart()">Clear</button>
+    <button class="btn primary" style="flex:2" onclick="pay()">Charge</button></div></div></div>`;
+  const load=async()=>{S.products=await api('/api/lookup?q='+encodeURIComponent(ps.value));
+    pg.innerHTML=S.products.map(p=>`<button class="pitem" onclick="addItem(${p.id})">${p.image?`<img class="pimg" src="${esc(p.image)}" loading="lazy" onerror="this.remove()">`:'<div class="pimg ph">📦</div>'}<div class="nm">${esc(p.name)}</div><div class="pr">${money(p.price)}</div><div class="st ${p.stock<=10?'low':''}">${p.stock} in stock${p.barcode?' · '+esc(p.barcode):''}</div>${p.discount_qty>0?`<div class="deal">Buy ${p.discount_qty}+ save ${p.discount_pct}%</div>`:''}</button>`).join('')||'<p class="hint">No products match</p>'};
+  ps.oninput=load; ps.onkeydown=e=>{if(e.key==='Enter'&&S.products[0]){addItem(S.products[0].id);ps.value='';load()}};
+  ps.focus(); load(); heldCount();
+}
+window.addItem=id=>{const p=S.products.find(x=>x.id===id);const it=S.cart.find(x=>x.id===id);
+  if(p.stock<=0)return toast('Out of stock',1);
+  it?it.qty++:S.cart.push({id,name:p.name,price:p.price,qty:1,taxable:p.taxable??1,dq:p.discount_qty||0,dp:p.discount_pct||0});drawCart()};
+const lineOf=i=>i.price*i.qty*(i.dq>0&&i.qty>=i.dq?1-(i.dp||0)/100:1);
+const totOf=()=>S.cart.reduce((a,i)=>a+lineOf(i),0);
+const vatOf=()=>{const r=+(S.boot.settings.tax_rate||0);return S.cart.reduce((a,i)=>a+(i.taxable?lineOf(i)*r/(100+r):0),0)};
+window.drawCart=()=>{ci.innerHTML=S.cart.map((i,x)=>`<div class="ci"><span class="nm">${esc(i.name)}${i.dq>0&&i.qty>=i.dq?` <span class="badge ok">−${i.dp}%</span>`:''}</span><span class="q"><button onclick="cq(${x},-1)">−</button><b>${i.qty}</b><button onclick="cq(${x},1)">+</button></span><b style="width:64px;text-align:right">${money(lineOf(i))}</b></div>`).join('')||'<p class="hint">Cart is empty</p>';
+  ct.textContent=money(totOf());
+  cvat.textContent=vatOf()>0.004?`incl. VAT ${S.boot.settings.tax_rate}% · ${money(vatOf())}`:''};
+window.cq=(x,d)=>{S.cart[x].qty+=d;if(S.cart[x].qty<=0)S.cart.splice(x,1);drawCart()};
+window.pay=()=>{const t=totOf();if(!t)return;
+  modal(`<h3>Settle payment</h3><p class="sub" style="margin-bottom:12px">Total due <b>${money(t)}</b></p>
+    <label>Cash received<input id="cash" type="number" step="0.01" value="${t.toFixed(2)}" autofocus></label>
+    <p style="margin:10px 0">Change: <b id="chg">${money(0)}</b></p>
+    <div class="row"><button type="button" class="btn" style="flex:1" onclick="closeM()">Cancel</button><button class="btn primary" style="flex:2" onclick="doPay(${t})">Complete sale</button></div>`);
+  cash.oninput=()=>chg.textContent=money(Math.max(0,cash.value-t))};
+window.parkSale=async()=>{if(!S.cart.length)return toast('Cart is empty');
+  const label=prompt('Name this held sale (e.g. customer name):','Customer');if(label===null)return;
+  await api('/api/held',{method:'POST',body:{label,items:S.cart}});S.cart=[];drawCart();heldCount();toast('Sale parked')};
+window.listHeld=async()=>{const hs=await api('/api/held');
+  modal(`<h3>Held sales</h3>${hs.map(h=>`<div class="ci"><span class="nm">${esc(h.label)}</span><span class="sub">${h.created.slice(5,16)} · ${esc(h.cashier||'')}</span>
+    <span><button class="btn small primary" onclick="recall(${h.id})">Recall</button> <button class="btn small danger" onclick="delHeld(${h.id})">✕</button></span></div>`).join('')||'<p class="hint">Nothing parked</p>'}`)};
+window.recall=async id=>{const h=await api('/api/held/'+id);S.cart=h.items;await api('/api/held/'+id,{method:'DELETE'});
+  closeM();drawCart();heldCount();toast('Recalled '+h.label)};
+window.delHeld=async id=>{await api('/api/held/'+id,{method:'DELETE'});closeM();listHeld();heldCount()};
+window.heldCount=async()=>{const hs=await api('/api/held');const b=document.getElementById('hbtn');if(b)b.textContent='Held'+(hs.length?' ('+hs.length+')':'')};
+window.doPay=async t=>{const r=await api('/api/checkout',{method:'POST',body:{items:S.cart,cash:+cash.value}});
+  closeM();S.cart=[];pgPos();
+  const rc=await api('/api/receipt/'+r.id);
+  modal(`<h3>Receipt · ${r.invoice}</h3><div class="rc" id="rc">${rcHtml(rc)}</div>
+    <div class="row" style="margin-top:14px"><button class="btn" onclick="closeM()">Close</button>
+    <button class="btn primary" style="flex:2" onclick="print()">Print receipt</button></div>`);
+  toast(`Sale ${r.invoice} · change ${money(r.change)}`)};
+const rcHtml=rc=>`<h4>${esc(rc.settings.store_name)}</h4><p class="c">${esc(rc.settings.store_address)}<br>${esc(rc.settings.store_phone)}</p><hr>
+  <table>${rc.items.map(i=>`<tr><td>${esc(i.name)} ×${i.qty}</td><td style="text-align:right">${money(i.total)}</td></tr>`).join('')}</table><hr>
+  <table>${rc.sale.discount>0?`<tr><td>Discounts</td><td style="text-align:right">−${money(rc.sale.discount)}</td></tr>`:''}
+  <tr><td>Subtotal (excl. VAT)</td><td style="text-align:right">${money(rc.sale.total-(rc.sale.vat||0))}</td></tr>
+  <tr><td>VAT ${rc.settings.tax_rate||0}%</td><td style="text-align:right">${money(rc.sale.vat||0)}</td></tr>
+  <tr><td><b>Total</b></td><td style="text-align:right"><b>${money(rc.sale.total)}</b></td></tr>
+  <tr><td>Cash</td><td style="text-align:right">${money(rc.sale.cash)}</td></tr>
+  <tr><td>Change</td><td style="text-align:right">${money(rc.sale.change_due)}</td></tr></table><hr>
+  <p class="c">${rc.sale.invoice_no} · ${rc.sale.created}<br>Served by ${esc(rc.sale.cashier||'')}</p>`;
+
+/* ---------- Products ---------- */
+async function pgProducts(){
+  const[ps,cs,bs,ss]=await Promise.all([api('/api/products'),api('/api/lookup/categories'),api('/api/lookup/brands'),api('/api/lookup/suppliers')]);
+  S.boot.categories=cs;S.boot.brands=bs;S.boot.suppliers=ss;
+  const adm=S.boot.user.role==='admin';
+  M.innerHTML=`<div class="top"><h1>Products</h1>${adm?'<span><button class="btn" onclick="impForm()">📄 Import CSV</button> <button class="btn primary" onclick="pForm()">+ New product</button></span>':''}</div>
+  <div class="toolbar"><input id="pq" placeholder="Filter…"><span class="sub">${ps.length} items</span></div>
+  <div class="card section"><table><tr><th></th><th>Barcode</th><th>Name</th><th>Category</th><th>Brand</th><th style="text-align:right">Cost</th><th style="text-align:right">Price</th><th style="text-align:right">Stock</th>${adm?'<th></th>':''}</tr>
+  <tbody id="pt"></tbody></table></div>
+  <div class="grid cols section">
+    <div class="card"><h2>Categories &amp; Brands</h2>${lkForm('categories',cs)}<hr style="border-color:var(--line);margin:14px 0">${lkForm('brands',bs)}</div>
+    <div class="card"><h2>Suppliers</h2>${lkForm('suppliers',ss,true)}</div></div>`;
+  const draw=list=>pt.innerHTML=list.map(p=>`<tr><td style="width:56px">${p.image?`<img class="timg" src="${esc(p.image)}" loading="lazy" onerror="this.remove()">`:'<div class="timg ph">📦</div>'}</td><td class="mono">${esc(p.barcode)}</td><td>${esc(p.name)}${p.taxable?'':' <span class="badge warn">VAT-exempt</span>'}${p.discount_qty>0?` <span class="badge ok">${p.discount_qty}+ −${p.discount_pct}%</span>`:''}${p.expiry?` <span class="badge ${new Date(p.expiry)<new Date(Date.now()+30*864e5)?'bad':'warn'}">exp ${p.expiry}</span>`:''}</td><td>${esc(p.category||'—')}</td><td>${esc(p.brand||'—')}</td><td style="text-align:right">${money(p.cost)}</td><td style="text-align:right"><b>${money(p.price)}</b></td><td style="text-align:right"><span class="badge ${p.stock<=10?'warn':'ok'}">${p.stock}</span></td>${adm?`<td style="text-align:right"><button class="btn small" onclick='pForm(${JSON.stringify(p)})'>Edit</button> <button class="btn small danger" onclick="pdel(${p.id})">✕</button>`:''}</tr>`).join('');
+  draw(ps);pq.oninput=()=>draw(ps.filter(p=>p.name.toLowerCase().includes(pq.value.toLowerCase())||String(p.barcode).includes(pq.value)));
+}
+const lkForm=(k,list,full)=>`<form onsubmit="lkAdd(event,'${k}',${full})" class="row" style="margin-bottom:12px"><input name="name" placeholder="New ${k.slice(0,-1)}…" required style="flex:2">${full?'<input name="contact" placeholder="Contact"><input name="phone" placeholder="Phone">':''}<button class="btn">Add</button></form>
+  ${list.map(x=>`<span class="badge ok" style="margin:0 6px 6px 0;display:inline-block">${esc(x.name)}</span>`).join('')}`;
+window.lkAdd=async(e,k,f)=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target));await api('/api/lookup/'+k,{method:'POST',body:d});toast('Added');pgProducts()};
+window.pForm=(p={})=>{modal(`<h3>${p.id?'Edit':'New'} product</h3><form onsubmit="pSave(event,${p.id||0})">
+  <div class="row"><label>Barcode<input name="barcode" value="${esc(p.barcode||'')}" required></label><label>Price<input name="price" type="number" step="0.01" value="${p.price??''}" required></label></div>
+  <label>Name<input name="name" value="${esc(p.name||'')}" required></label>
+  <div class="row"><label>Category<select name="category_id">${S.boot.categories.map(c=>`<option value=${c.id} ${c.id===p.category_id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></label>
+  <label>Brand<select name="brand_id">${S.boot.brands.map(b=>`<option value=${b.id} ${b.id===p.brand_id?'selected':''}>${esc(b.name)}</option>`).join('')}</select></label></div>
+  <div class="row"><label>Cost<input name="cost" type="number" step="0.01" value="${p.cost??0}"></label><label>Stock<input name="stock" type="number" step="0.01" value="${p.stock??0}"></label></div>
+  <div class="row"><label>Bulk deal qty<input name="discount_qty" type="number" step="1" min="0" value="${p.discount_qty??0}" title="Buy this many to get the discount — 0 disables"></label><label>Deal % off<input name="discount_pct" type="number" step="0.1" min="0" max="100" value="${p.discount_pct??0}"></label><label>Expiry<input name="expiry" type="date" value="${p.expiry||''}"></label></div>
+  <label>Image URL<input name="image" id="pfimg" value="${esc(p.image||'')}" placeholder="https://…" oninput="document.getElementById('pfprev').src=this.value"></label>
+  <div class="row" style="align-items:center;gap:12px"><img id="pfprev" class="timg" src="${esc(p.image||'')}" style="width:64px;height:64px" onerror="this.style.visibility='hidden'" onload="this.style.visibility='visible'">
+    <button type="button" class="btn small" onclick="findImgs(document.querySelector('[name=name]').value)">🔍 Find online</button>
+    <label class="btn small" style="cursor:pointer;margin:0">📁 Upload<input type="file" accept="image/*" hidden onchange="upImg(this)"></label>
+    <button type="button" class="btn small" onclick="pfimg.value='';pfprev.style.visibility='hidden'">Remove</button></div>
+  <div id="imgpick" class="row" style="flex-wrap:wrap"></div>
+  <label style="display:flex;gap:8px;align-items:center;font-size:13px;color:var(--text)"><input type="checkbox" name="taxable" ${p.taxable===0?'':'checked'} style="width:auto"> Charge ${S.boot.settings.tax_rate||16}% VAT (uncheck for VAT-exempt items)</label>
+  <div class="row"><button type="button" class="btn" style="flex:1" onclick="closeM()">Cancel</button><button class="btn primary" style="flex:2">Save</button></div></form>`)};
+window.findImgs=async q=>{const p=document.getElementById('imgpick');p.innerHTML='<span class="sub">Searching…</span>';
+  const urls=await api('/api/image-search?q='+encodeURIComponent(q||''));
+  p.innerHTML=urls.map(u=>`<img class="timg" style="width:64px;height:64px;cursor:pointer" src="${u}" onclick="pfimg.value=this.src;pfprev.src=this.src;pfprev.style.visibility='visible';imgpick.innerHTML=''">`).join('')||'<span class="sub">No images found</span>'};
+window.upImg=async el=>{const f=el.files[0];if(!f)return;const r=new FileReader();
+  r.onload=async()=>{const u=await api('/api/upload',{method:'POST',body:{data:r.result}});
+    pfimg.value=u.url;pfprev.src=u.url;pfprev.style.visibility='visible';toast('Image uploaded')};
+  r.readAsDataURL(f)};
+window.pSave=async(e,id)=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target));
+  ['price','stock','cost','category_id','brand_id','discount_qty','discount_pct'].forEach(k=>d[k]=+d[k]);d.taxable=e.target.taxable.checked?1:0;
+  await api('/api/products'+(id?'/'+id:''),{method:id?'PUT':'POST',body:d});closeM();toast('Saved');pgProducts()};
+window.pdel=async id=>{if(confirm('Delete product?')){await api('/api/products/'+id,{method:'DELETE'});toast('Deleted');pgProducts()}};
+window.impForm=()=>modal(`<h3>Import products from CSV</h3>
+  <p class="sub" style="margin-bottom:10px">Columns: <code>barcode, name, price</code> required-ish (name+price). Optional: <code>category, brand, cost, stock, taxable, discount_qty, discount_pct, expiry, image</code>. Existing barcodes get updated; new categories/brands are created automatically.</p>
+  <input type="file" id="impfile" accept=".csv,text/csv" style="margin-bottom:12px">
+  <div id="impres" class="sub"></div>
+  <div class="row"><button type="button" class="btn" style="flex:1" onclick="closeM()">Cancel</button><button class="btn primary" style="flex:2" onclick="doImport()">Import</button></div>`);
+window.doImport=async()=>{const f=document.getElementById('impfile').files[0];if(!f)return toast('Choose a file',1);
+  const r=await api('/api/products/import',{method:'POST',body:{csv:await f.text()}});
+  document.getElementById('impres').innerHTML=`<b style="color:var(--ok)">${r.created} added, ${r.updated} updated</b>${r.skipped?` · <b style="color:var(--warn)">${r.skipped} skipped</b>`:''}${r.errors.map(e=>`<br>· ${esc(e)}`).join('')}`;
+  if(r.created||r.updated){toast('Import done');pgProducts()}};
+
+/* ---------- Inventory ---------- */
+async function pgInv(){
+  const[d,crit]=await Promise.all([api('/api/stock'),api('/api/critical')]);
+  const adm=S.boot.user.role==='admin';
+  M.innerHTML=`<div class="top"><h1>Inventory</h1>${adm?'<button class="btn primary" onclick="sForm()">+ Stock entry</button>':''}</div>
+  <div class="grid cols">
+  <div class="card"><h2>Critical stock (≤10)</h2><table><tr><th>Product</th><th style="text-align:right">Left</th></tr>
+    ${crit.map(p=>`<tr><td>${esc(p.name)}</td><td style="text-align:right"><span class="badge ${p.stock<=3?'bad':'warn'}">${p.stock}</span></td></tr>`).join('')||'<tr><td>All good ✓</td></tr>'}</table></div>
+  <div class="card"><h2>Stock movements</h2><table><tr><th>Ref</th><th>Product</th><th style="text-align:right">Qty</th><th>Type</th><th>Date</th></tr>
+    ${d.entries.map(e=>`<tr><td class="mono">${esc(e.ref_no)}</td><td>${esc(e.product)}</td><td style="text-align:right"><b style="color:${e.qty<0?'var(--bad)':'var(--ok)'}">${e.qty>0?'+':''}${e.qty}</b></td><td><span class="badge ${e.kind==='in'?'ok':'warn'}">${e.kind}</span></td><td>${e.created.slice(0,10)}</td></tr>`).join('')||'<tr><td colspan=5>No movements yet</td></tr>'}</table></div></div>
+  <div class="card section"><h2>All stock</h2><table><tr><th>Barcode</th><th>Product</th><th style="text-align:right">Stock</th><th style="text-align:right">Cost</th><th style="text-align:right">Value</th></tr>
+    ${d.products.map(p=>`<tr><td class="mono">${esc(p.barcode)}</td><td>${esc(p.name)}</td><td style="text-align:right">${p.stock}</td><td style="text-align:right">${money(p.cost)}</td><td style="text-align:right">${money(p.stock*p.cost)}</td></tr>`).join('')}</table></div>`;
+}
+window.sForm=()=>api('/api/stock').then(d=>modal(`<h3>Stock entry</h3><form onsubmit="sSave(event)">
+  <label>Product<select name="product_id">${d.products.map(p=>`<option value=${p.id}>${esc(p.name)} (have ${p.stock})</option>`).join('')}</select></label>
+  <div class="row"><label>Qty (+ restock / − adjust out)<input name="qty" type="number" step="0.01" required></label>
+  <label>Supplier<select name="supplier_id"><option value="">—</option>${S.boot.suppliers.map(s=>`<option value=${s.id}>${esc(s.name)}</option>`).join('')}</select></label></div>
+  <label>Ref no. (blank = auto)<input name="ref_no"></label>
+  <label>Note<input name="note" placeholder="Delivery, damage, correction…"></label>
+  <div class="row"><button type="button" class="btn" style="flex:1" onclick="closeM()">Cancel</button><button class="btn primary" style="flex:2">Record</button></div></form>`));
+window.sSave=async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target));d.qty=+d.qty;d.product_id=+d.product_id;
+  const r=await api('/api/stock',{method:'POST',body:d});closeM();toast('Stock updated · '+r.ref_no);pgInv()};
+
+/* ---------- Orders ---------- */
+async function pgOrders(){
+  M.innerHTML=`<div class="top"><h1>Orders</h1><input type="date" id="od" value="${new Date().toISOString().slice(0,10)}"></div>
+  <div class="card"><table><tr><th>Invoice</th><th>Cashier</th><th>Items</th><th>Time</th><th>Status</th><th style="text-align:right">Total</th><th></th></tr><tbody id="ot"></tbody></table></div>`;
+  const load=async()=>{const s=await api('/api/sales?date='+od.value);
+    ot.innerHTML=s.map(x=>`<tr><td class="mono">${x.invoice_no}</td><td>${esc(x.cashier||'—')}</td><td>${x.items}</td><td>${x.created.slice(11,16)}</td><td><span class="badge ${x.status==='void'?'bad':'ok'}">${x.status}</span></td><td style="text-align:right"><b>${money(x.total)}</b></td>
+    <td style="text-align:right"><button class="btn small" onclick="viewRc(${x.id})">View</button>${x.status==='completed'&&S.boot.user.role==='admin'?` <button class="btn small danger" onclick="voidSale(${x.id})">Void</button>`:''}</td></tr>`).join('')||'<tr><td colspan=7>No orders this day</td></tr>'};
+  od.onchange=load;load();
+}
+window.viewRc=async id=>{const rc=await api('/api/receipt/'+id);modal(`<h3>${rc.sale.invoice_no} ${rc.sale.status==='void'?'<span class="badge bad">VOID</span>':''}</h3><div class="rc">${rcHtml(rc)}</div><div class="row" style="margin-top:14px"><button class="btn" onclick="closeM()">Close</button><button class="btn primary" style="flex:2" onclick="print()">Print</button></div>`)};
+window.voidSale=async id=>{if(confirm('Void this sale? Stock will be returned.')){await api(`/api/sales/${id}/void`,{method:'POST'});toast('Sale voided');pgOrders()}};
+
+/* ---------- Reports ---------- */
+async function pgReports(){
+  M.innerHTML=`<div class="top"><h1>Reports</h1><input type="date" id="rd" value="${new Date().toISOString().slice(0,10)}"></div>
+  <div class="grid cards"><div class="card acc"><div class="k">Revenue</div><div class="v" id="rt">—</div></div>
+  <div class="card"><div class="k">Orders</div><div class="v" id="ro">—</div></div></div>
+  <div class="grid cols"><div class="card"><h2>Top selling items (all time)</h2><table><tr><th>Product</th><th style="text-align:right">Qty</th><th style="text-align:right">Revenue</th></tr><tbody id="tt"></tbody></table></div>
+  <div class="card"><h2>Daily sales list</h2><table><tr><th>Invoice</th><th>Cashier</th><th>Status</th><th style="text-align:right">Total</th></tr><tbody id="dt"></tbody></table></div></div>`;
+  const load=async()=>{const r=await api('/api/reports?date='+rd.value);
+    rt.textContent=money(r.totals.total);ro.textContent=r.totals.orders;
+    tt.innerHTML=r.top.map(x=>`<tr><td>${esc(x.name)}</td><td style="text-align:right">${x.qty}</td><td style="text-align:right"><b>${money(x.revenue)}</b></td></tr>`).join('')||'<tr><td colspan=3>No sales yet</td></tr>';
+    dt.innerHTML=r.daily.map(x=>`<tr><td class="mono">${x.invoice_no}</td><td>${esc(x.cashier||'—')}</td><td><span class="badge ${x.status==='void'?'bad':'ok'}">${x.status}</span></td><td style="text-align:right"><b>${money(x.total)}</b></td></tr>`).join('')||'<tr><td colspan=4>No sales this day</td></tr>'};
+  rd.onchange=load;load();
+}
+
+/* ---------- Users ---------- */
+async function pgUsers(){
+  const [us,rs]=await Promise.all([api('/api/users'),api('/api/resets')]);
+  M.innerHTML=`<div class="top"><h1>Users</h1><button class="btn primary" onclick="uForm()">+ New user</button></div>
+  <div class="card"><table><tr><th>Username</th><th>Name</th><th>Role</th><th></th></tr>
+  ${us.map(u=>`<tr><td class="mono">${esc(u.username)}</td><td>${esc(u.name)}</td><td><span class="badge ${u.role==='admin'?'warn':'ok'}">${u.role}</span></td>
+  <td style="text-align:right"><button class="btn small" onclick="pwForm(${u.id},'${esc(u.username)}')">Password</button> <button class="btn small danger" onclick="udel(${u.id})">✕</button></td></tr>`).join('')}</table></div>
+  <div class="card section"><h2>Reset requests${rs.length?` <span class="badge warn">${rs.length}</span>`:''}</h2>
+  ${rs.map(r=>`<div class="ci"><span class="nm">${esc(r.uname||r.username)} <span class="sub">· ${esc(r.name||'')}</span></span><span class="sub">${r.created.slice(5,16)}</span>
+    <span><button class="btn small primary" onclick="appr(${r.id})">Approve</button> <button class="btn small" onclick="dism(${r.id})">Dismiss</button></span></div>`).join('')||'<p class="hint">No pending requests — when someone clicks "Forgot password" they appear here</p>'}</div>`;
+}
+window.appr=async id=>{const r=await api(`/api/resets/${id}/approve`,{method:'POST'});
+  modal(`<h3>Password reset approved</h3><p class="sub">Give this temporary password to the cashier — they'll be asked to set a new one on login.</p>
+  <p class="mono" style="font-size:22px;text-align:center;padding:16px;background:var(--panel2);border-radius:10px"><b>${r.temp}</b></p>
+  <div class="row" style="margin-top:14px"><button class="btn primary block" onclick="closeM()">Done</button></div>`);pgUsers()};
+window.dism=async id=>{await api(`/api/resets/${id}/dismiss`,{method:'POST'});pgUsers()};
+window.uForm=()=>modal(`<h3>New user</h3><form onsubmit="uSave(event)"><div class="row"><label>Username<input name="username" required></label><label>Role<select name="role"><option>cashier</option><option>admin</option></select></label></div><label>Name<input name="name" required></label><label>Password<input name="password" type="password" required></label><div class="row"><button type="button" class="btn" style="flex:1" onclick="closeM()">Cancel</button><button class="btn primary" style="flex:2">Create</button></div></form>`);
+window.uSave=async e=>{e.preventDefault();await api('/api/users',{method:'POST',body:Object.fromEntries(new FormData(e.target))});closeM();toast('User created');pgUsers()};
+window.udel=async id=>{if(confirm('Delete user?')){await api('/api/users/'+id,{method:'DELETE'});pgUsers()}};
+window.pwForm=(id,u)=>modal(`<h3>Reset password · ${u}</h3><form onsubmit="pwSave(event,${id})"><label>New password<input name="password" type="password" required></label><div class="row"><button type="button" class="btn" style="flex:1" onclick="closeM()">Cancel</button><button class="btn primary" style="flex:2">Save</button></div></form>`);
+window.pwSave=async(e,id)=>{e.preventDefault();await api(`/api/users/${id}/password`,{method:'POST',body:Object.fromEntries(new FormData(e.target))});closeM();toast('Password updated')};
+
+
+/* ---------- Docs ---------- */
+const DOCS=[
+ ['login','Sign in','Sign in with your username and password. Cashiers see the till and orders only; admins see everything. <b>Forgot password?</b> — click it, enter your username, and your admin approves the reset under Users → Reset requests.'],
+ ['dash','Dashboard','The day at a glance: today\'s revenue and orders, catalogue size, stock value at cost, top sellers, items needing restock, products expiring within 30 days, and recent orders.'],
+ ['pos','Point of Sale','Scan a barcode or click a product. Adjust quantities with −/+. <b>Park</b> saves a cart under a name (e.g. a waiting customer); <b>Held</b> recalls it. Charge → enter cash → the receipt prints with VAT split out. Bulk deals apply automatically when the quantity qualifies.'],
+ ['products','Products','Add/edit products: barcode, price, cost, stock, category, brand, VAT toggle, bulk-deal (buy N+, % off), expiry date, and an image (upload a file, paste a URL, or 🔍 find one online). <b>📄 Import CSV</b> bulk-loads a price list — unknown categories and brands are created for you.'],
+ ['inv','Inventory','Record deliveries and corrections with + Stock entry — positive adds, negative adjusts. Critical stock panel flags items at 10 or fewer; the table shows stock value per product at cost.'],
+ ['orders','Orders','Every sale for a chosen day. Open a receipt to view or print it again. <b>Void</b> (admin only) cancels a sale and restores its stock.'],
+ ['reports','Reports','Pick a date for the day\'s order list, revenue and order totals, plus all-time top-selling items.'],
+ ['users','Users &amp; resets','Admins add/remove users, assign roles, and reset passwords. <b>Reset requests</b> appear here when someone uses "Forgot password" — Approve to get a temporary password to hand over; they\'ll be asked to set a new one on login.'],
+ ['settings','Settings','Store name, address, phone and currency feed the receipt header. VAT rate % applies to all taxable items — receipts show the VAT split. Tip: you can also rename the shop by clicking its name in the sidebar.']];
+function pgDocs(){
+  M.innerHTML=`<div class="top"><h1>Docs</h1><span class="sub">How Nova POS works — every screen, with pictures</span></div>
+  <div class="docs">
+  ${DOCS.map(d=>`<div class="card doc"><h2>${d[1]}</h2><p class="sub" style="font-size:14px;line-height:1.7;margin:10px 0 14px">${d[2]}</p>
+    <img src="/static/docs/${d[0]}.png" alt="${d[1]} screen" loading="lazy" style="width:100%;border-radius:10px;border:1px solid var(--line)"></div>`).join('')}
+  <p class="hint">Nova POS · theme toggle is in the sidebar · all data lives in pos.db — back it up by copying that file.</p></div>`;
+}
+
+/* ---------- Settings ---------- */
+async function pgSettings(){
+  const s=await api('/api/settings');const adm=S.boot.user.role==='admin';
+  M.innerHTML=`<div class="top"><h1>Settings</h1></div><div class="card" style="max-width:560px">
+  <form onsubmit="stSave(event)"><label>Store name<input name="store_name" value="${esc(s.store_name)}" ${adm?'':'disabled'}></label>
+  <label>Address<input name="store_address" value="${esc(s.store_address)}" ${adm?'':'disabled'}></label>
+  <div class="row"><label>Phone<input name="store_phone" value="${esc(s.store_phone)}" ${adm?'':'disabled'}></label>
+  <label>Currency symbol<input name="currency" value="${esc(s.currency)}" ${adm?'':'disabled'}></label>
+  <label>VAT rate %<input name="tax_rate" type="number" step="0.01" value="${esc(s.tax_rate)}" ${adm?'':'disabled'}></label></div>
+  ${adm?'<button class="btn primary block">Save settings</button>':'<p class="hint">Admin access required to edit.</p>'}</form></div>`;
+}
+window.stSave=async e=>{e.preventDefault();await api('/api/settings',{method:'PUT',body:Object.fromEntries(new FormData(e.target))});toast('Saved');pgSettings()};
+
+boot();
+</script></body></html>

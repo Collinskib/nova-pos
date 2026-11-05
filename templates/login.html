@@ -1,0 +1,49 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sign in — Nova POS</title><script>document.documentElement.dataset.theme=localStorage.getItem('pos-theme')||'light'</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,500;1,400&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/pos.css"></head>
+<body class="auth stage">
+<div class="blob b1"></div><div class="blob b2"></div>
+<div class="login-card">
+  <div class="hero-pane">
+    <div class="ring r1"></div><div class="ring r2"></div><div class="ring r3"></div>
+    <svg class="curve" viewBox="0 0 100 600" preserveAspectRatio="none"><path d="M0,0 H45 C90,120 5,240 55,360 C95,460 60,540 30,600 H0 Z" fill="#3d2bb8"/></svg>
+    <div class="hero-in">
+      <div class="markw anim" style="--d:0"><span class="logo">◈</span> Nova POS</div>
+      <div class="hero-copy">
+        <h1 class="display light anim" style="--d:1">Welcome<br>back.</h1>
+        <p class="anim" style="--d:2">Open the till — sales, stock and VAT, all in one place.</p>
+      </div>
+    </div>
+  </div>
+  <div class="side-pane">
+    <img class="motif" src="https://thumb.wikimedia.org/wikipedia/commons/thumb/9/97/A_vegetable_stall_in_the_outskirts_of_Nairobi%2C_Kenya.jpg/1920px-A_vegetable_stall_in_the_outskirts_of_Nairobi%2C_Kenya.jpg" alt="">
+    <div class="form-col">
+      <p class="eyebrow anim" style="--d:0">Sign in</p>
+      <form id="f" class="anim" style="--d:1">
+        <label>Username<input name="username" autocomplete="username" required autofocus></label>
+        <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+        <button type="submit" class="btn primary block pill">Sign in →</button>
+        <p class="err" id="err"></p>
+      </form>
+      <p class="anim" style="--d:2;text-align:center;margin-top:4px"><a id="fg" style="cursor:pointer;color:var(--acc);font-size:13px">Forgot password?</a></p>
+      <div id="fgbox" class="hide anim" style="margin-top:8px">
+        <label>Your username<input id="fgu" autocomplete="username"></label>
+        <button class="btn block" id="fgsend">Request reset</button>
+        <p class="hint" id="fgmsg"></p>
+      </div>
+      <p class="hint anim" style="--d:2">demo: <code>admin / admin123</code> · <code>cashier / cashier123</code></p>
+    </div>
+  </div>
+</div>
+<script>
+fg.onclick=()=>fgbox.classList.toggle('hide');
+fgsend.onclick=async()=>{await fetch('/api/forgot',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:fgu.value})});
+  fgmsg.textContent='If that account exists, a reset request was sent to your admin. Ask them to approve it under Users → Reset requests.'};
+f.onsubmit = async e => { e.preventDefault();
+  const d = Object.fromEntries(new FormData(f));
+  const r = await fetch('/api/login', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});
+  if (r.ok) location.reload(); else err.textContent = (await r.json()).error;
+};
+</script></body></html>
