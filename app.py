@@ -485,7 +485,8 @@ def lookup():  # barcode or name search for the till
     q = request.args.get("q", ""); c = db()
     r = c.execute("""SELECT p.*, c.name category, b.name brand FROM products p
         LEFT JOIN categories c ON c.id=p.category_id LEFT JOIN brands b ON b.id=p.brand_id
-        WHERE p.barcode=? OR p.name LIKE ? ORDER BY p.name LIMIT 20""", (q, f"%{q}%")).fetchall()
+        WHERE p.barcode=? OR p.name LIKE ? OR p.parent_id IN (SELECT id FROM products WHERE barcode=? OR name LIKE ?)
+        ORDER BY p.name LIMIT 20""", (q, f"%{q}%", q, f"%{q}%")).fetchall()
     return jsonify([dict(x) for x in r])
 
 @app.post("/api/checkout")

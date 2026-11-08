@@ -121,7 +121,9 @@ async function pgDash(){
 /* ---------- POS ---------- */
 async function pgPos(){
   S.cart=[];
-  M.innerHTML=`<div class="top"><h1>Point of Sale</h1><span class="sub">Scan a barcode or click a product</span></div>
+  M.innerHTML=`<div class="top"><h1>Point of Sale</h1><span class="sub">Scan a barcode or click a product</span>
+  <span><button class="btn small" id="plr" style="${S.plist==='r'?'background:var(--acc);color:#fff':''}" onclick="setPlist('r')">Retail</button>
+  <button class="btn small" id="plw" style="${S.plist==='w'?'background:var(--acc);color:#fff':''}" onclick="setPlist('w')">Wholesale</button></span></div>
   <div class="pos"><div>
     <div class="searchbox"><input id="ps" placeholder="Search or scan barcode…" autocomplete="off">
       <button class="btn" id="camscan" onclick="camScan('ps')" title="Scan barcode with camera">📷 Scan</button></div>
@@ -133,13 +135,28 @@ async function pgPos(){
     <button class="btn" onclick="S.cart=[];drawCart()">Clear</button>
     <button class="btn primary" style="flex:2" onclick="pay()">Charge</button></div></div></div>`;
   const load=async()=>{S.products=await api('/api/lookup?q='+encodeURIComponent(ps.value));
-    pg.innerHTML=S.products.map(p=>`<button class="pitem" onclick="addItem(${p.id})">${p.image?`<img class="pimg" src="${esc(p.image)}" loading="lazy" onerror="this.remove()">`:'<div class="pimg ph">📦</div>'}<div class="nm">${esc(p.name)}</div><div class="pr">${money(p.price)}</div><div class="st ${p.stock<=10?'low':''}">${p.stock} in stock${p.barcode?' · '+esc(p.barcode):''}</div>${p.discount_qty>0?`<div class="deal">Buy ${p.discount_qty}+ save ${p.discount_pct}%</div>`:''}</button>`).join('')||'<p class="hint">No products match</p>'};
-  ps.oninput=load; ps.onkeydown=e=>{if(e.key==='Enter'&&S.products[0]){addItem(S.products[0].id);ps.value='';load()}};
+    pg.innerHTML=S.products.filter(p=>!p.parent_id).map(p=>`<button class="pitem" onclick="pick(${p.id})">${p.image?`<img class="pimg" src="${esc(p.image)}" loading="lazy" onerror="this.remove()">`:'<div class="pimg ph">📦</div>'}<div class="nm">${esc(p.name)}</div><div class="pr">${money(pp(p))}</div><div class="st ${p.stock<=10?'low':''}">${p.stock} in stock${p.barcode?' · '+esc(p.barcode):''}</div>${p.discount_qty>0?`<div class="deal">Buy ${p.discount_qty}+ save ${p.discount_pct}%</div>`:''}</button>`).join('')||'<p class="hint">No products match</p>'};
+  window.loadPos=load; ps.oninput=load; ps.onkeydown=e=>{if(e.key==='Enter'&&S.products[0]){addItem(S.products[0].id);ps.value='';load()}};
   ps.focus(); load(); heldCount();
 }
+S.plist=S.plist||'r';
+const pp=p=>S.plist==='w'&&p.price_wholesale!=null?p.price_wholesale:p.price;
+window.setPlist=m=>{S.plist=m;if(window.loadPos)loadPos()};
 window.addItem=id=>{const p=S.products.find(x=>x.id===id);const it=S.cart.find(x=>x.id===id);
   if(p.stock<=0)return toast('Out of stock',1);
-  it?it.qty++:S.cart.push({id,name:p.name,price:p.price,qty:1,taxable:p.taxable??1,dq:p.discount_qty||0,dp:p.discount_pct||0});drawCart()};
+  it?it.qty++:S.cart.push({id,name:p.name,price:pp(p),qty:1,taxable:p.taxable??1,dq:p.discount_qty||0,dp:p.discount_pct||0});drawCart()};
+window.pick=id=>{const p=S.products.find(x=>x.id===id);const opts=S.products.filter(x=>x.parent_id===id);
+  if(p.pack_size>1)opts.push({...p,_pack:1});
+  if(!opts.length)return addItem(id);
+  modal(`<h3>${esc(p.name)} — choose</h3>${opts.map(v=>`<button class="btn" style="width:100%;margin-bottom:8px;text-align:left" ${v.stock<=0?'disabled':''} onclick="pickOpt('${v._pack?'p'+id:v.id}')">${esc(v._pack?`Pack ×${v.pack_size}`:v.variant_label||v.name)} — ${money(v._pack?(v.pack_price??pp(v)*v.pack_size):pp(v))} · ${v.stock} left</button>`).join('')}
+    <button class="btn" style="width:100%" onclick="closeM()">Cancel</button>`)};
+window.pickOpt=id=>{closeM();
+  if(String(id)[0]==='p'){const p=S.products.find(x=>x.id===+String(id).slice(1));
+    const up=Math.round((p.pack_price??pp(p)*p.pack_size)/p.pack_size*100)/100;
+    S.cart.push({id:p.id,name:p.name+` · pack ×${p.pack_size}`,price:up,qty:p.pack_size,taxable:p.taxable??1,dq:0,dp:0});drawCart();return}
+  const p=S.products.find(x=>x.id===+id);const it=S.cart.find(x=>x.id===+id);
+  const nm=p.variant_label?p.name+' · '+p.variant_label:p.name;
+  it?it.qty++:S.cart.push({id:+id,name:nm,price:pp(p),qty:1,taxable:p.taxable??1,dq:p.discount_qty||0,dp:p.discount_pct||0});drawCart()};
 const lineOf=i=>i.price*i.qty*(i.dq>0&&i.qty>=i.dq?1-(i.dp||0)/100:1);
 const totOf=()=>S.cart.reduce((a,i)=>a+lineOf(i),0);
 const vatOf=()=>{const r=+(S.boot.settings.tax_rate||0);return S.cart.reduce((a,i)=>a+(i.taxable?lineOf(i)*r/(100+r):0),0)};
