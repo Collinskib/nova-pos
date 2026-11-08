@@ -1,4 +1,4 @@
-# PyInstaller spec — build with: pyinstaller mauzo.spec
+# PyInstaller spec — build with: pyinstaller shujaa.spec
 import sys
 
 a = Analysis(
@@ -9,8 +9,8 @@ a = Analysis(
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz, a.scripts, a.binaries, a.datas,
-    name="mauzo-pos",
+    name="shujaa-pos",
     console=False,
 )
 if sys.platform == "darwin":
-    app = BUNDLE(exe, name="Mauzo POS.app", bundle_identifier="app.mauzo.pos")
+    app = BUNDLE(exe, name="ShujaaPOS.app", bundle_identifier="app.shujaa.pos")

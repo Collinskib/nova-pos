@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "Mauzo POS",
-    "slug": "mauzo-pos",
+    "name": "ShujaaPOS",
+    "slug": "shujaa-pos",
     "version": "0.1.0",
     "orientation": "portrait",
-    "scheme": "mauzo-pos",
+    "scheme": "shujaa-pos",
     "userInterfaceStyle": "automatic",
     "plugins": [
       "expo-router",

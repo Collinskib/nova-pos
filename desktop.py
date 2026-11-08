@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mauzo POS desktop launcher — runs the local hub and opens a native window.
+"""ShujaaPOS desktop launcher — runs the local hub and opens a native window.
 
 Works offline: SQLite lives in the user data dir, hub on 127.0.0.1:5050.
 Falls back to the system browser if pywebview isn't available.
@@ -8,7 +8,7 @@ import os, sys, threading, time, urllib.request
 
 # Bundled app: keep the DB in a writable user dir, not next to the binary.
 _data = os.getenv("APPDATA") or os.path.join(os.path.expanduser("~"), ".local", "share")
-DB_DIR = os.path.join(_data, "MauzoPOS")
+DB_DIR = os.path.join(_data, "ShujaaPOS")
 os.makedirs(DB_DIR, exist_ok=True)
 os.environ.setdefault("POS_DB", os.path.join(DB_DIR, "pos.db"))
 os.environ.setdefault("POS_HOST", "127.0.0.1")
@@ -35,12 +35,12 @@ if __name__ == "__main__":
             time.sleep(0.1)
     try:
         import webview
-        webview.create_window("Mauzo POS", BASE, width=1200, height=820, min_size=(900, 600))
+        webview.create_window("ShujaaPOS", BASE, width=1200, height=820, min_size=(900, 600))
         webview.start()
     except ImportError:
         import webbrowser
         webbrowser.open(BASE)
-        print("Mauzo POS running at", BASE, "— close this window to quit.")
+        print("ShujaaPOS running at", BASE, "— close this window to quit.")
         try:
             threading.Event().wait()
         except KeyboardInterrupt:

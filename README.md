@@ -1,4 +1,4 @@
-# Mauzo POS
+# ShujaaPOS
 
 Offline-first point-of-sale for Kenyan retail — a local Flask till, an Expo mobile app, and a Supabase-backed cloud dashboard. Sell with no internet; everything syncs when you're back online.
 
@@ -61,12 +61,12 @@ set -a && source .env && set +a && .venv/bin/python cloud_api.py   # → :5060
 
 Every push to `master` builds all platforms — **Actions → builds → Artifacts**:
 
-- `mauzo-pos-windows-latest` → `.exe`
-- `mauzo-pos-ubuntu-latest` → binary **and** AppImage (all distros)
-- `mauzo-pos-macos-latest` → `.app` (Apple Silicon) · `mauzo-pos-macos-13` → `.app` (Intel)
-- `mauzo-pos-android` → sideloadable APK
+- `shujaa-pos-windows-latest` → `.exe`
+- `shujaa-pos-ubuntu-latest` → binary **and** AppImage (all distros)
+- `shujaa-pos-macos-latest` → `.app` (Apple Silicon) · `shujaa-pos-macos-13` → `.app` (Intel)
+- `shujaa-pos-android` → sideloadable APK
 
-Local build: `pip install pyinstaller && pyinstaller mauzo.spec`
+Local build: `pip install pyinstaller && pyinstaller shujaa.spec`
 
 ## Repo layout
 
@@ -77,7 +77,7 @@ templates/          hub UI (vanilla JS SPA)
 mobile/             Expo app — local SQLite mirror, sync engine
 web/                static SaaS app — Supabase auth + PostgREST/RLS
 desktop.py          packaged-app launcher (pywebview → browser fallback)
-mauzo.spec          PyInstaller spec
+shujaa.spec          PyInstaller spec
 supabase/migrations cloud schema — tenants, products, sales, events, RLS
 CHANGES.md          ERPNext feature-gap roadmap (implemented items ticked)
 ```

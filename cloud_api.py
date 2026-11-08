@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mauzo POS cloud API (BUILD.md Phase 5) — event ingestion into Supabase.
+"""ShujaaPOS cloud API (BUILD.md Phase 5) — event ingestion into Supabase.
 
 Mirrors the hub sync contract: POST /api/v1/sync/push, GET /api/v1/sync/pull,
 POST /api/v1/sync/ack, GET /api/v1/sync/status. Hub authenticates with

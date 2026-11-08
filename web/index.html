@@ -1,6 +1,6 @@
 <!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Mauzo POS</title>
+<title>ShujaaPOS</title>
 <style>
 :root{--bg:#0d0a1f;--card:#1e1840;--acc:#8b5cf6;--ok:#3ecf8e;--bad:#e05a5a;--mut:#9a93c2;--txt:#f0eeff;--line:#2e2657}
 *{box-sizing:border-box;font-family:system-ui,-apple-system,sans-serif}
@@ -56,7 +56,7 @@ const api = (p, body) => tok().then(t => fetch(CONF.api + p, {
 /* ---------- auth ---------- */
 let mode = "up";
 function login() {
-  M.innerHTML = `<div class="card"><h1><span class="brand">Mauzo</span> POS</h1>
+  M.innerHTML = `<div class="card"><h1>ShujaaPOS</h1>
     <p class="sub">Sell anywhere — offline till, cloud dashboard.</p>
     <div class="tabs"><span class="${mode==='up'?'on':''}" onclick="mode='up';login()">Create account</span>
       <span class="${mode==='in'?'on':''}" onclick="mode='in';login()">Sign in</span></div>
@@ -87,7 +87,7 @@ function google() {
 function onboard() {
   M.innerHTML = `<div class="card"><h1>Set up your store</h1>
     <p class="sub">This becomes your business — you can add branches after.</p>
-    <label>Store / business name<input id="bn" placeholder="e.g. Mauzo Mart"></label>
+    <label>Store / business name<input id="bn" placeholder="e.g. Shujaa Mart"></label>
     <label>First branch<input id="bb" value="Main"></label>
     <button class="w" onclick="doOnboard()">Create my store</button><div id="msg"></div></div>`;
 }
@@ -108,7 +108,7 @@ async function boot() {
   if (!ms.length) return onboard();
   biz = ms[0].businesses; role = ms[0].role;
   M.innerHTML = `<div class="app">
-    <div class="top"><h1><span class="brand">Mauzo</span> POS <span class="mut" style="font-size:13px;font-weight:400">· ${esc(biz?.name)}</span></h1>
+    <div class="top"><h1>ShujaaPOS <span class="mut" style="font-size:13px;font-weight:400">· ${esc(biz?.name)}</span></h1>
       <span class="sub" style="margin:0">${esc(me.email)} · ${esc(role)} <a href="#" onclick="sb.auth.signOut().then(boot);return false">sign out</a></span></div>
     <div class="nav" id="nav"></div><div id="c"></div></div>`;
   show("dash");

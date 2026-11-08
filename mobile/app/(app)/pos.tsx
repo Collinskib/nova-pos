@@ -87,7 +87,7 @@ export default function Pos() {
   return (
     <View style={s.c}>
       <View style={s.top}>
-        <Text style={s.brand}>Mauzo POS</Text>
+        <Text style={s.brand}>ShujaaPOS</Text>
         <View style={{ flexDirection: "row", gap: 6, marginBottom: 8 }}>
           {(["retail", "wholesale"] as const).map(m => (
             <TouchableOpacity key={m} onPress={() => setPlist(m)} style={[s.plc, plist === m && s.plcOn]}>
@@ -219,7 +219,7 @@ export default function Pos() {
       <Modal visible={!!rc} transparent animationType="fade">
         <View style={s.mo}><View style={s.ms}>
           <ScrollView style={{ maxHeight: 420 }}>
-            <Text style={s.rcT}>MAUZO POS</Text>
+            <Text style={s.rcT}>SHUJAAPOS</Text>
             <Text style={s.rcS}>RECEIPT {rc?.no}</Text>
             <Text style={s.rcS}>{rc?.at} · {rc?.cashier}</Text>
             <View style={s.rcD} />
@@ -249,7 +249,7 @@ export default function Pos() {
 }
 
 const rcText = (rc: any) => rc ? [
-  "MAUZO POS", `RECEIPT ${rc.no}`, `${rc.at} · ${rc.cashier}`, "-".repeat(32),
+  "SHUJAAPOS", `RECEIPT ${rc.no}`, `${rc.at} · ${rc.cashier}`, "-".repeat(32),
   ...rc.lines.map((l: any) => `${l.name} x${l.qty}  KSh ${(l.total / 100).toFixed(2)}`),
   "-".repeat(32), `TOTAL   KSh ${(rc.total / 100).toFixed(2)}`,
   `Cash    KSh ${(rc.paid / 100).toFixed(2)}`, `Change  KSh ${(rc.change / 100).toFixed(2)}`,

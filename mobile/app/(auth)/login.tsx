@@ -38,7 +38,7 @@ export default function Login() {
 
   if (mems) return (
     <ScrollView style={{ flex: 1, backgroundColor: "#14102b" }} contentContainerStyle={s.wrap}>
-      <Text style={s.brand}>Mauzo POS</Text>
+      <Text style={s.brand}>ShujaaPOS</Text>
       {mems.map(m => (
         <View key={m.business_id} style={s.card}>
           <Text style={s.h}>{m.business} <Text style={s.role}>{m.role}</Text></Text>
@@ -53,7 +53,7 @@ export default function Login() {
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: "#14102b" }} contentContainerStyle={s.wrap}>
-      <Text style={s.brand}>Mauzo POS</Text>
+      <Text style={s.brand}>ShujaaPOS</Text>
       <View style={s.card}>
         <Text style={s.h}>Sign in</Text>
         <Text style={s.sub}>Use your staff account from your admin.</Text>

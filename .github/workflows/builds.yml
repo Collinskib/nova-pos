@@ -27,32 +27,32 @@ jobs:
         run: pip install flask waitress pywebview pyinstaller
 
       - name: Build binary
-        run: pyinstaller mauzo.spec
+        run: pyinstaller shujaa.spec
 
       - name: Build AppImage
         if: runner.os == 'Linux'
         run: |
           mkdir -p AppDir/usr/bin
-          cp dist/mauzo-pos AppDir/usr/bin/
-          cp static/icon.png AppDir/mauzo-pos.png
-          cat > AppDir/mauzo-pos.desktop <<'EOF'
+          cp dist/shujaa-pos AppDir/usr/bin/
+          cp static/icon.png AppDir/shujaa-pos.png
+          cat > AppDir/shujaa-pos.desktop <<'EOF'
           [Desktop Entry]
           Type=Application
-          Name=Mauzo POS
-          Exec=mauzo-pos
-          Icon=mauzo-pos
+          Name=ShujaaPOS
+          Exec=shujaa-pos
+          Icon=shujaa-pos
           Categories=Office;
           EOF
-          printf '#!/bin/sh\nexec "$APPDIR/usr/bin/mauzo-pos" "$@"\n' > AppDir/AppRun
+          printf '#!/bin/sh\nexec "$APPDIR/usr/bin/shujaa-pos" "$@"\n' > AppDir/AppRun
           chmod +x AppDir/AppRun
           wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
-          ARCH=x86_64 ./appimagetool-x86_64.AppImage --appimage-extract-and-run AppDir dist/mauzo-pos-x86_64.AppImage
+          ARCH=x86_64 ./appimagetool-x86_64.AppImage --appimage-extract-and-run AppDir dist/shujaa-pos-x86_64.AppImage
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mauzo-pos-${{ matrix.os }}
+          name: shujaa-pos-${{ matrix.os }}
           path: dist/
 
   android:
@@ -87,5 +87,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: mauzo-pos-android
+          name: shujaa-pos-android
           path: mobile/android/app/build/outputs/apk/debug/app-debug.apk

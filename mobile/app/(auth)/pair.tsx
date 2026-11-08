@@ -106,7 +106,7 @@ export default function Pair() {
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: "#14102b" }} contentContainerStyle={s.wrap}>
-      <Text style={s.brand}>Mauzo POS</Text>
+      <Text style={s.brand}>ShujaaPOS</Text>
       <View style={s.card}>
         <Text style={s.h}>Pair this device</Text>
         <Text style={s.sub}>On the hub: Devices → Pair a device → enter the code below.</Text>
