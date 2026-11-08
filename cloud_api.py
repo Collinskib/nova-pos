@@ -279,4 +279,4 @@ def web_index():
 def health(): return jsonify({"ok": True})
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=int(os.environ.get("CLOUD_API_PORT", 5060)))
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT") or os.environ.get("CLOUD_API_PORT", 5060)))
