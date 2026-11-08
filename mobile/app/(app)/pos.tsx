@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { View, Text, TextInput, TouchableOpacity, FlatList, Alert, StyleSheet, Modal, Image, Share, ScrollView } from "react-native";
 import { searchProducts, checkout, CartItem, Product } from "../../src/db/repos";
 import { refreshCatalog } from "../../src/sync/engine";
+import { hub, creds } from "../../src/lib/api";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useStore } from "../../src/store/store";
 import { fmt } from "../_layout";
@@ -26,6 +27,14 @@ export default function Pos() {
   const [rc, setRc] = useState<any>(null);
   const [pays, setPays] = useState<{ m: string; a: string }[]>([{ m: "cash", a: "" }]);
   const paidC = () => pays.reduce((a, p) => a + Math.round((parseFloat(p.a) || 0) * 100), 0);
+  const [cust, setCust] = useState<string | null>(null);
+  const [custs, setCusts] = useState<any[]>([]);
+  const [newC, setNewC] = useState("");
+  useEffect(() => {
+    if (!sheet) return;
+    (async () => { try { const c = await creds.load(); if (!c) return;
+      const b = await hub.base(); setCusts(await hub.customers(b, c.device_key)); } catch {} })();
+  }, [sheet]);
   const reload = () => searchProducts(q).then(setProds);
   useEffect(() => { reload(); }, [q]);
   const pullRefresh = async () => {
@@ -40,15 +49,15 @@ export default function Pos() {
   const charge = async () => {
     if (!ctx) return;
     try {
-      const r = await checkout(ctx, items, pays.map(p => ({ method: p.m, amount: parseFloat(p.a) || 0 })));
+      const r = await checkout(ctx, items, pays.map(p => ({ method: p.m, amount: parseFloat(p.a) || 0 })), cust || undefined);
       const paid = paidC();
       const lines = items.map(i => ({ name: i.name, qty: i.qty,
         total: Math.round(i.price_cents * i.qty * (1 - (i.discount_qty && i.qty >= i.discount_qty ? (i.discount_pct || 0) / 100 : 0))) }));
       setRc({ no: r.receipt_no, lines, total: r.total_cents, paid,
         tax: lines.filter(l => items.find(i => i.name === l.name)?.taxable).reduce((a, l) => a + Math.round(l.total * 0.16 / 1.16), 0),
         change: Math.max(0, paid - r.total_cents), cashier: ctx.cashier_name || "—",
-        at: new Date().toLocaleString() });
-      clearCart(); setSheet(false); setPays([{ m: "cash", a: "" }]);
+        cust: cust || "Walk-in", at: new Date().toLocaleString() });
+      clearCart(); setSheet(false); setPays([{ m: "cash", a: "" }]); setCust(null);
       set({ pending: useStore.getState().pending + 1 });
     } catch (e: any) { Alert.alert("Cannot complete sale", e.message); }
   };
@@ -105,9 +114,27 @@ export default function Pos() {
       <Modal visible={sheet} transparent animationType="slide">
         <View style={s.mo}><View style={s.ms}>
           <Text style={s.msH}>Total {fmt(total)}</Text>
+          <Text style={{ color: "#6d6790", fontSize: 12, marginBottom: 4 }}>Customer</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 6 }}>
+            <TouchableOpacity onPress={() => setCust(null)} style={[s.pchip, !cust && s.pchipOn]}>
+              <Text style={[s.pchipT, !cust && { color: "#fff" }]}>Walk-in</Text></TouchableOpacity>
+            {custs.map(c => (
+              <TouchableOpacity key={c.id} onPress={() => setCust(c.name)}
+                style={[s.pchip, cust === c.name && s.pchipOn, { marginLeft: 6 }]}>
+                <Text style={[s.pchipT, cust === c.name && { color: "#fff" }]}>{c.name}</Text></TouchableOpacity>))}
+            <TextInput style={[s.cash, { width: 130, marginBottom: 0, marginLeft: 6, padding: 10, fontSize: 13 }]}
+              placeholder="+ new" placeholderTextColor="#8b86a8" value={newC} onChangeText={setNewC}
+              onSubmitEditing={async () => {
+                if (!newC.trim()) return;
+                try { const c = await creds.load(); if (!c) return; const b = await hub.base();
+                  const r = await hub.addCustomer(b, c.device_key, { name: newC.trim() });
+                  setCusts([...custs, { id: r.id, name: newC.trim() }]); setCust(newC.trim()); setNewC("");
+                } catch {}
+              }} />
+          </ScrollView>
           {pays.map((p, i) => (
             <View key={i} style={{ flexDirection: "row", gap: 6, marginBottom: 8 }}>
-              {["cash", "mpesa", "card"].map(m => (
+              {["cash", "mpesa", "card", "credit"].map(m => (
                 <TouchableOpacity key={m} onPress={() => { const q = [...pays]; q[i] = { ...q[i], m }; setPays(q); }}
                   style={[s.pchip, p.m === m && s.pchipOn]}>
                   <Text style={[s.pchipT, p.m === m && { color: "#fff" }]}>
@@ -140,6 +167,7 @@ export default function Pos() {
                 <Text style={s.rcN}>{fmt(l.total)}</Text>
               </View>))}
             <View style={s.rcD} />
+            <View style={s.rcR}><Text style={s.rcS}>Customer</Text><Text style={s.rcS}>{rc?.cust || "Walk-in"}</Text></View>
             <View style={s.rcR}><Text style={s.rcS}>VAT incl. (16%)</Text><Text style={s.rcS}>{fmt(rc?.tax || 0)}</Text></View>
             <View style={s.rcR}><Text style={s.rcTot}>TOTAL</Text><Text style={s.rcTot}>{fmt(rc?.total || 0)}</Text></View>
             <View style={s.rcR}><Text style={s.rcS}>Cash tendered</Text><Text style={s.rcS}>{fmt(rc?.paid || 0)}</Text></View>

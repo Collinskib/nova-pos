@@ -107,6 +107,12 @@ CREATE TABLE IF NOT EXISTS shifts(
   expected_cash REAL, difference REAL, status TEXT DEFAULT 'OPEN');
 """)
 
+mig(5, """
+CREATE TABLE IF NOT EXISTS customers(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT, created_at TEXT);
+ALTER TABLE sales ADD COLUMN customer_name TEXT;
+""")
+
 DEFAULT_BUSINESS, DEFAULT_BRANCH = 1, 1
 
 def apply_migrations(c):
@@ -838,10 +844,12 @@ def apply_sale_event(c, dev, e):
     tot = f(p.get("total_cents") or p.get("total"))
     paid = f(p["paid_cents"]) if p.get("paid_cents") is not None else tot
     c.execute("""INSERT INTO sales(invoice_no,total,cash,change_due,vat,discount,user_id,status,created,
-                 sale_uuid,business_id,branch_id,device_id,cashier_name) VALUES(?,?,?,?,?,0,?,'completed',?,?,?,?,?,?)""",
+                 sale_uuid,business_id,branch_id,device_id,cashier_name,customer_name)
+                 VALUES(?,?,?,?,?,0,?,'completed',?,?,?,?,?,?,?)""",
               (inv, tot, paid, round(max(0, paid - tot), 2),
                f(p.get("tax_cents") or p.get("vat")), uid,
-               (e.get("device_created_at") or utcnow())[:19], suid, dev["business_id"], dev["branch_id"], dev["id"], cname))
+               (e.get("device_created_at") or utcnow())[:19], suid, dev["business_id"], dev["branch_id"], dev["id"], cname,
+               p.get("customer_name")))
     sid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
     for i in p.get("items", []):
         lt = f(i.get("total_cents") if "total_cents" in i else i.get("total"))
@@ -916,6 +924,18 @@ def shift_close():
     audit(c, "shift.closed", f"{d['device_name']} expected {expected} counted {count} diff {diff}")
     c.commit()
     return jsonify({"ok": True, "expected": expected, "counted": count, "difference": diff})
+
+@app.route("/api/v1/customers", methods=["GET", "POST"])
+@need_device
+def device_customers():
+    c = db()
+    if request.method == "POST":
+        j = request.json or {}
+        if not (j.get("name") or "").strip(): return jsonify({"error": "name required"}), 400
+        c.execute("INSERT INTO customers(name,phone,created_at) VALUES(?,?,?)",
+                  (j["name"].strip(), (j.get("phone") or "").strip(), utcnow()))
+        c.commit(); return jsonify({"ok": True, "id": c.execute("SELECT last_insert_rowid()").fetchone()[0]})
+    return jsonify(rows(c, "SELECT id,name,phone FROM customers ORDER BY name"))
 
 # ---------- Synchronization (§8) ----------
 @app.post("/api/v1/sync/push")
