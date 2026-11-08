@@ -134,6 +134,12 @@ ALTER TABLE products ADD COLUMN pack_size INTEGER DEFAULT 0;
 ALTER TABLE products ADD COLUMN pack_price REAL;
 """)
 
+mig(10, """
+CREATE TABLE IF NOT EXISTS batches(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER, batch_no TEXT,
+  qty REAL, expiry TEXT, created_at TEXT);
+""")
+
 DEFAULT_BUSINESS, DEFAULT_BRANCH = 1, 1
 
 def apply_migrations(c):
@@ -600,7 +606,8 @@ def stock_list():
     c = db()
     return jsonify({"entries": rows(c, """SELECT e.*, p.name product, p.barcode, s.name supplier FROM stock_entries e
         LEFT JOIN products p ON p.id=e.product_id LEFT JOIN suppliers s ON s.id=e.supplier_id ORDER BY e.id DESC LIMIT 100"""),
-        "products": rows(c, "SELECT id,barcode,name,stock,price,cost FROM products ORDER BY name")})
+        "products": rows(c, "SELECT id,barcode,name,stock,price,cost FROM products ORDER BY name"),
+        "batches": rows(c, "SELECT b.*, p.name product FROM batches b LEFT JOIN products p ON p.id=b.product_id ORDER BY b.id DESC LIMIT 50")})
 
 @app.post("/api/stock")
 @need_admin
@@ -613,6 +620,10 @@ def stock_add():
     c.execute("INSERT INTO stock_entries(ref_no,product_id,qty,kind,note,supplier_id,created,branch_id,movement_id) VALUES(?,?,?,?,?,?,?,1,?)",
               (ref, d["product_id"], qty, kind, d.get("note",""), d.get("supplier_id"), datetime.now().isoformat(timespec="seconds"), mid))
     c.execute("UPDATE products SET stock=stock+? WHERE id=?", (qty, d["product_id"]))
+    if qty > 0 and (d.get("batch_no") or "").strip():
+        c.execute("INSERT INTO batches(product_id,batch_no,qty,expiry,created_at) VALUES(?,?,?,?,?)",
+                  (d["product_id"], d["batch_no"].strip(), qty, d.get("expiry") or None,
+                   datetime.now().isoformat(timespec="seconds")))
     emit_event(c, "STOCK_MOVED", mid, {"movement_uuid": mid, "ref_no": ref, "product_id": d["product_id"],
                                      "quantity_delta": qty, "movement_type": mtype, "supplier_id": d.get("supplier_id")})
     audit(c, "stock.adjusted", f"{ref} · product {d['product_id']} · {qty:+g}")

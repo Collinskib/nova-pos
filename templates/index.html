@@ -274,13 +274,18 @@ async function pgInv(){
   <div class="card"><h2>Stock movements</h2><table><tr><th>Ref</th><th>Product</th><th style="text-align:right">Qty</th><th>Type</th><th>Date</th></tr>
     ${d.entries.map(e=>`<tr><td class="mono">${esc(e.ref_no)}</td><td>${esc(e.product)}</td><td style="text-align:right"><b style="color:${e.qty<0?'var(--bad)':'var(--ok)'}">${e.qty>0?'+':''}${e.qty}</b></td><td><span class="badge ${e.kind==='in'?'ok':'warn'}">${e.kind}</span></td><td>${e.created.slice(0,10)}</td></tr>`).join('')||'<tr><td colspan=5>No movements yet</td></tr>'}</table></div></div>
   <div class="card section"><h2>All stock</h2><table><tr><th>Barcode</th><th>Product</th><th style="text-align:right">Stock</th><th style="text-align:right">Cost</th><th style="text-align:right">Value</th></tr>
-    ${d.products.map(p=>`<tr><td class="mono">${esc(p.barcode)}</td><td>${esc(p.name)}</td><td style="text-align:right">${p.stock}</td><td style="text-align:right">${money(p.cost)}</td><td style="text-align:right">${money(p.stock*p.cost)}</td></tr>`).join('')}</table></div>`;
+    ${d.products.map(p=>`<tr><td class="mono">${esc(p.barcode)}</td><td>${esc(p.name)}</td><td style="text-align:right">${p.stock}</td><td style="text-align:right">${money(p.cost)}</td><td style="text-align:right">${money(p.stock*p.cost)}</td></tr>`).join('')}</table></div>
+  ${d.batches?.length?`<div class="card section"><h2>Batches</h2><table><tr><th>Batch</th><th>Product</th><th style="text-align:right">Qty</th><th>Expiry</th><th>Received</th></tr>
+    ${d.batches.map(b=>`<tr><td class="mono">${esc(b.batch_no)}</td><td>${esc(b.product)}</td><td style="text-align:right">${b.qty}</td>
+    <td>${b.expiry?`<span class="badge ${new Date(b.expiry)<new Date(Date.now()+30*864e5)?'bad':'warn'}">${b.expiry}</span>`:'—'}</td>
+    <td>${(b.created_at||'').slice(0,10)}</td></tr>`).join('')}</table></div>`:''}`;
 }
 window.sForm=()=>api('/api/stock').then(d=>modal(`<h3>Stock entry</h3><form onsubmit="sSave(event)">
   <label>Product<select name="product_id">${d.products.map(p=>`<option value=${p.id}>${esc(p.name)} (have ${p.stock})</option>`).join('')}</select></label>
   <div class="row"><label>Qty (+ restock / − adjust out)<input name="qty" type="number" step="0.01" required></label>
   <label>Supplier<select name="supplier_id"><option value="">—</option>${S.boot.suppliers.map(s=>`<option value=${s.id}>${esc(s.name)}</option>`).join('')}</select></label></div>
   <label>Ref no. (blank = auto)<input name="ref_no"></label>
+  <div class="row"><label>Batch no.<input name="batch_no" placeholder="optional — restocks"></label><label>Batch expiry<input name="expiry" type="date"></label></div>
   <label>Note<input name="note" placeholder="Delivery, damage, correction…"></label>
   <div class="row"><button type="button" class="btn" style="flex:1" onclick="closeM()">Cancel</button><button class="btn primary" style="flex:2">Record</button></div></form>`));
 window.sSave=async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target));d.qty=+d.qty;d.product_id=+d.product_id;
