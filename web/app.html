@@ -166,13 +166,22 @@ async function sales() {
 async function products() {
   const c = document.getElementById("c");
   c.innerHTML = `<div class="panel">Loading…</div>`;
-  const {data: p} = await sb.from("products").select("name,sku,barcode,selling_price,cost_price,active").order("name");
+  const {data: p} = await sb.from("products").select("id,name,sku,barcode,selling_price,cost_price,active").order("name");
   c.innerHTML = `<div class="panel"><h3 style="margin-top:0">Products · ${(p || []).length}</h3><table>
     <tr><th>Name</th><th>Barcode / SKU</th><th class="right">Price</th><th class="right">Cost</th><th></th></tr>
     ${(p || []).map(x => `<tr><td>${esc(x.name)}</td><td class="mono mut">${esc(x.barcode || x.sku || "—")}</td>
       <td class="right"><b>${ksh(x.selling_price)}</b></td><td class="right mut">${ksh(x.cost_price)}</td>
-      <td><span class="badge ${x.active ? '' : 'bad'}">${x.active ? 'active' : 'off'}</span></td></tr>`).join("")
-      || '<tr><td colspan=5 class="mut">No products yet — add them on the hub; they sync here.</td></tr>'}</table></div>`;
+      <td><span class="badge ${x.active ? '' : 'bad'}">${x.active ? 'active' : 'off'}</span>
+      <a href="#" onclick="editProd('${x.id}','${esc(x.name)}',${x.selling_price});return false" style="margin-left:8px">price</a>
+      <a href="#" onclick="adjStock('${x.id}','${esc(x.name)}');return false" style="margin-left:6px">stock</a></td></tr>`).join("")
+      || '<tr><td colspan=5 class="mut">No products yet.</td></tr>'}</table>
+    <h4 style="margin:18px 0 4px">Add a product</h4>
+    <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:8px"><input id="npn" placeholder="Name" style="flex:2;min-width:120px">
+      <input id="npp" type="number" placeholder="Price" style="flex:1;min-width:80px">
+      <input id="npc" type="number" placeholder="Cost" style="flex:1;min-width:80px">
+      <input id="npb" placeholder="Barcode" style="flex:1;min-width:90px">
+      <button onclick="addProd()" style="margin:0">Add</button></div>
+    <p class="mut" style="font-size:12px;margin-top:6px">New and changed products sync to the hub and mobile automatically.</p><div id="msg"></div></div>`;
 }
 async function branches() {
   const c = document.getElementById("c");
@@ -232,6 +241,25 @@ async function pay() {
   pos();
 }
 
+async function addProd() {
+  const r = await api("/api/web/product", {name: npn.value, price: +npp.value || 0, cost: +npc.value || 0, barcode: npb.value});
+  if (r.error || !r.ok) return say(esc(r.error || "failed"), "err");
+  products();
+}
+async function editProd(id, name, price) {
+  const v = prompt(`New price for ${name} (KSh)`, price);
+  if (v === null) return;
+  const r = await api("/api/web/product", {id, name, price: +v});
+  if (r.error || !r.ok) return say(esc(r.error || "failed"), "err");
+  products();
+}
+async function adjStock(id, name) {
+  const v = prompt(`Stock adjustment for ${name} — e.g. 24 to receive, -3 damaged`, "0");
+  if (v === null || isNaN(+v)) return;
+  const r = await api("/api/web/stock", {product_id: id, delta: +v, note: "web adjust"});
+  if (r.error || !r.ok) return say(esc(r.error || "failed"), "err");
+  say("Stock updated — syncs to your tills.", "okm");
+}
 async function addBranch() {
   const r = await api("/api/branches", {business_id: biz.id, name: nbn.value, address: nba.value});
   if (r.error) return say(esc(r.error), "err");

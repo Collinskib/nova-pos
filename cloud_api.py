@@ -132,7 +132,7 @@ def apply_event(e):
                     "movement_type": "SALE", "quantity_delta": -float(i.get("qty", 0)),
                     "device_id": e["device_id"], "created_at": e.get("device_created_at") or utcnow()})
     elif t == "STOCK_MOVED":
-        pu = str(uuid.uuid5(uuid.NAMESPACE_DNS, str(p.get("product_id"))))
+        pu = p.get("product_uuid") or str(uuid.uuid5(uuid.NAMESPACE_DNS, str(p.get("product_id"))))
         pg("POST", "stock_movements", {"business_id": bid, "branch_id": brid, "product_id": pu,
             "movement_type": p.get("movement_type", "STOCK_ADJUSTMENT"), "quantity_delta": p.get("quantity_delta", 0),
             "device_id": e["device_id"], "note": p.get("ref_no", ""), "created_at": e.get("device_created_at") or utcnow()})
@@ -325,6 +325,46 @@ def web_sale():
         if bal: pg("PATCH","stock_balances",{"on_hand": float(bal[0]["on_hand"])-float(i["qty"])},params=f"?id=eq.{bal[0]['id']}")
         else: pg("POST","stock_balances",{"business_id":bid,"branch_id":brid,"product_id":i["product_id"],"on_hand":-float(i["qty"])})
     return jsonify({"ok":True,"receipt":receipt,"total":total})
+
+def _emit(bid, brid, dev, etype, payload):
+    eid = str(uuid.uuid4())
+    n = pg("POST","rpc/alloc_sequence",{"p_branch":brid})
+    if isinstance(n, dict): return None
+    row = {"event_id":eid,"business_id":bid,"branch_id":brid,"device_id":dev,"event_type":etype,
+           "schema_version":1,"device_created_at":utcnow(),"payload":payload,"server_sequence":n}
+    if isinstance(pg("POST","sync_events",row), dict): return None
+    try: apply_event({**row,"device_id":dev,"event_id":eid})
+    except Exception: pass
+    return eid
+
+@app.post("/api/web/product")
+def web_product():
+    u = authed_user()
+    if not u: return jsonify({"error":"unauthorized"}), 401
+    ctx = _biz_ctx(u["id"])
+    if not ctx: return jsonify({"error":"no store"}), 400
+    bid, brid = ctx
+    d = request.get_json(force=True)
+    pid = d.get("id") or str(uuid.uuid4())
+    upd = bool(d.get("id"))
+    eid = _emit(bid, brid, _web_device(bid, brid), "PRODUCT_UPDATED" if upd else "PRODUCT_CREATED",
+        {"product_id": pid, "product_uuid": pid, "name": d.get("name"), "barcode": d.get("barcode"),
+         "price": float(d.get("price") or 0), "cost": float(d.get("cost") or 0)})
+    return jsonify({"ok": bool(eid), "id": pid}) if eid else (jsonify({"error":"emit failed"}), 500)
+
+@app.post("/api/web/stock")
+def web_stock():
+    u = authed_user()
+    if not u: return jsonify({"error":"unauthorized"}), 401
+    ctx = _biz_ctx(u["id"])
+    if not ctx: return jsonify({"error":"no store"}), 400
+    bid, brid = ctx
+    d = request.get_json(force=True)
+    eid = _emit(bid, brid, _web_device(bid, brid), "STOCK_MOVED",
+        {"product_id": d["product_id"], "product_uuid": d["product_id"],
+         "movement_type": "STOCK_ADJUSTMENT", "quantity_delta": float(d.get("delta") or 0),
+         "ref_no": d.get("note") or "web"})
+    return jsonify({"ok": bool(eid)}) if eid else (jsonify({"error":"emit failed"}), 500)
 
 @app.get("/")
 def web_index():
