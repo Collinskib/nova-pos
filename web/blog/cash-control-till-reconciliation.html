@@ -1,0 +1,43 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Cash Control at the Till: Reconciling Shifts | ShujaaPOS</title>
+<meta name="description" content="How shift floats, end-of-day counts and expected-vs-counted reconciliation catch cashier errors and theft without creating a climate of suspicion.">
+<link rel="canonical" href="https://YOURDOMAIN/blog/cash-control-till-reconciliation">
+<style>:root{--bg:#0d0a1f;--card:#1e1840;--acc:#8b5cf6;--mut:#9a93c2;--txt:#f0eeff;--line:#2e2657}
+*{box-sizing:border-box;font-family:system-ui,-apple-system,sans-serif}
+body{background:var(--bg);color:var(--txt);margin:0;line-height:1.7}
+nav{display:flex;justify-content:space-between;align-items:center;padding:20px min(6vw,80px)}
+nav b{font-size:20px}.brand{color:var(--acc)}
+nav a{color:var(--mut);text-decoration:none;margin-left:24px;font-size:14px;font-weight:600}
+nav a.cta{background:var(--acc);color:#fff;padding:10px 18px;border-radius:9px}
+main{max-width:720px;margin:0 auto;padding:40px 20px 80px;font-size:16.5px}
+h1{font-size:32px;line-height:1.25;margin-bottom:6px}
+.date{color:var(--mut);font-size:13px;margin-bottom:30px}
+h2{font-size:22px;margin:38px 0 10px}
+p{margin:14px 0}ul,ol{margin:14px 0;padding-left:24px}li{margin:6px 0}
+a{color:var(--acc)}
+.callout{background:var(--card);border-left:3px solid var(--acc);border-radius:0 12px 12px 0;padding:16px 20px;margin:22px 0;font-size:15px}
+table{width:100%;border-collapse:collapse;margin:20px 0;font-size:14.5px}
+th{text-align:left;color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.4px;padding:8px 10px;border-bottom:1px solid var(--line)}
+td{padding:9px 10px;border-bottom:1px solid #221c4a}
+img{max-width:100%;border-radius:12px;margin:16px 0}
+.cta-box{background:var(--card);border-radius:14px;padding:24px;text-align:center;margin-top:44px}
+.cta-box a{display:inline-block;background:var(--acc);color:#fff;text-decoration:none;padding:13px 28px;border-radius:10px;font-weight:700;margin-top:12px}
+footer{border-top:1px solid var(--line);padding:26px;text-align:center;color:var(--mut);font-size:13px}</style></head><body><nav><b><a href="/" style="color:var(--txt);margin:0;text-decoration:none"><span class="brand">Shujaa</span>POS</a></b><div><a href="/blog">Blog</a><a href="/app" class="cta">Open the app</a></div></nav><main><h1>Cash Control at the Till: Reconciling Shifts</h1>
+<p class="date">ShujaaPOS · November 2026 · 5 min read</p>
+<p>Most shop money doesn't vanish through clever theft. It leaks through honest sloppiness: a float that was never written down, change given wrong, a drawer counted by memory. A shift system fixes this with simple maths.</p>
+<h2>How a shift works</h2>
+<ol>
+<li>The cashier opens a shift and declares the <b>opening float</b>: the change money in the drawer. KSh 1,000, say.</li>
+<li>Sales happen through the day. The system knows the cash total it should have collected.</li>
+<li>At closing, the cashier counts what's physically in the drawer and enters it.</li>
+<li>The system shows three numbers: float, expected (float plus cash sales), and the difference between expected and counted.</li>
+</ol>
+<p>That difference is everything. If it's zero, you file it and go home. If it's short, you have a precise, dated figure to discuss instead of a vague suspicion. If it's over, someone may have short-changed a customer, which is a different problem worth catching.</p>
+<h2>Why it works without drama</h2>
+<p>The cashier declares the float themselves and counts the drawer themselves. You're not accusing anyone; you're both just reading the same arithmetic. Staff usually appreciate it too, since a clean reconciliation is also proof they didn't take anything.</p>
+<h2>Habits that keep it clean</h2>
+<ul>
+<li>Open and close shifts at the same times daily. An unclosed shift hides a whole day's cash.</li>
+<li>Never let a cashier enter the closing count unwitnessed if amounts keep coming up short.</li>
+<li>Petty cash taken from the drawer should be written down when taken, not reconstructed at close.</li>
+</ul>
+<div class="callout"><b>In ShujaaPOS:</b> the till's Sync screen opens and closes shifts with exactly this float-expected-counted-diff flow, and the hub's Devices tab shows every shift's reconciliation line.</div><div class="cta-box"><b>Sell offline. Sync when you're back.</b><br><a href="/app">Try ShujaaPOS free</a></div></main><footer>ShujaaPOS · Offline-first point-of-sale · Nairobi, Kenya</footer></body></html>

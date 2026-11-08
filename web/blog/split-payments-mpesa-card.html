@@ -1,0 +1,39 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Split Payments: Cash, M-Pesa and Card on One Sale | ShujaaPOS</title>
+<meta name="description" content="Customers rarely pay one clean way anymore. How to record part-cash, part-M-Pesa sales correctly so your end-of-day figures stay honest.">
+<link rel="canonical" href="https://YOURDOMAIN/blog/split-payments-mpesa-card">
+<style>:root{--bg:#0d0a1f;--card:#1e1840;--acc:#8b5cf6;--mut:#9a93c2;--txt:#f0eeff;--line:#2e2657}
+*{box-sizing:border-box;font-family:system-ui,-apple-system,sans-serif}
+body{background:var(--bg);color:var(--txt);margin:0;line-height:1.7}
+nav{display:flex;justify-content:space-between;align-items:center;padding:20px min(6vw,80px)}
+nav b{font-size:20px}.brand{color:var(--acc)}
+nav a{color:var(--mut);text-decoration:none;margin-left:24px;font-size:14px;font-weight:600}
+nav a.cta{background:var(--acc);color:#fff;padding:10px 18px;border-radius:9px}
+main{max-width:720px;margin:0 auto;padding:40px 20px 80px;font-size:16.5px}
+h1{font-size:32px;line-height:1.25;margin-bottom:6px}
+.date{color:var(--mut);font-size:13px;margin-bottom:30px}
+h2{font-size:22px;margin:38px 0 10px}
+p{margin:14px 0}ul,ol{margin:14px 0;padding-left:24px}li{margin:6px 0}
+a{color:var(--acc)}
+.callout{background:var(--card);border-left:3px solid var(--acc);border-radius:0 12px 12px 0;padding:16px 20px;margin:22px 0;font-size:15px}
+table{width:100%;border-collapse:collapse;margin:20px 0;font-size:14.5px}
+th{text-align:left;color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.4px;padding:8px 10px;border-bottom:1px solid var(--line)}
+td{padding:9px 10px;border-bottom:1px solid #221c4a}
+img{max-width:100%;border-radius:12px;margin:16px 0}
+.cta-box{background:var(--card);border-radius:14px;padding:24px;text-align:center;margin-top:44px}
+.cta-box a{display:inline-block;background:var(--acc);color:#fff;text-decoration:none;padding:13px 28px;border-radius:10px;font-weight:700;margin-top:12px}
+footer{border-top:1px solid var(--line);padding:26px;text-align:center;color:var(--mut);font-size:13px}</style></head><body><nav><b><a href="/" style="color:var(--txt);margin:0;text-decoration:none"><span class="brand">Shujaa</span>POS</a></b><div><a href="/blog">Blog</a><a href="/app" class="cta">Open the app</a></div></nav><main><h1>Split Payments: Cash, M-Pesa and Card on One Sale</h1>
+<p class="date">ShujaaPOS · November 2026 · 4 min read</p>
+<p>A customer owes KSh 850. They have KSh 500 in cash and the rest on M-Pesa. This happens dozens of times a day in a Kenyan shop, and it's where end-of-day maths quietly goes wrong if your till records one payment method per sale.</p>
+<h2>Why single-method recording breaks</h2>
+<p>If that KSh 850 sale goes down as "cash" only, your cash count is short by 350 at close. If it goes down as "M-Pesa", your M-Pesa statement won't match the ledger. Either way you're reconciling phantom gaps at 9pm.</p>
+<h2>The correct habit</h2>
+<p>Record each payment as its own line: KSh 500 cash, KSh 350 M-Pesa, against the same sale. Then every drawer count and every M-Pesa statement checks out independently, and the sale total still equals what the customer owed.</p>
+<h2>In ShujaaPOS specifically</h2>
+<p>The charge screen takes a payment method and amount per row. Tap <b>+ Split payment</b> and a second row appears, already filled with the remaining balance. Methods are cash, M-Pesa, card and credit. The footer shows "Remaining" until the sale is covered, then "Change" if cash was overpaid. Each method lands in the payments ledger separately, so the reconciliation above actually works.</p>
+<h2>Edge cases worth knowing</h2>
+<ul>
+<li><b>Partial credit.</b> KSh 500 cash now, KSh 350 on the customer's account. Record the credit portion as a credit payment line; the customer record keeps the trail.</li>
+<li><b>Overpayment.</b> If cash exceeds the bill, change is computed on the total tendered, not per method.</li>
+<li><b>Refunds.</b> Refund through the same split if that's how the customer wants it back.</li>
+</ul>
+<div class="callout"><b>End-of-day test:</b> your counted cash should equal opening float plus recorded cash payments minus recorded change given. If that maths works daily, split payments are being recorded properly.</div><div class="cta-box"><b>Sell offline. Sync when you're back.</b><br><a href="/app">Try ShujaaPOS free</a></div></main><footer>ShujaaPOS · Offline-first point-of-sale · Nairobi, Kenya</footer></body></html>

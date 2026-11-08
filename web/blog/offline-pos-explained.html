@@ -1,0 +1,42 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Offline POS Explained: How Local-First Tills Work | ShujaaPOS</title>
+<meta name="description" content="How can a till keep selling with no internet and still end up in the cloud? A plain explanation of local databases, event queues and sync engines.">
+<link rel="canonical" href="https://YOURDOMAIN/blog/offline-pos-explained">
+<style>:root{--bg:#0d0a1f;--card:#1e1840;--acc:#8b5cf6;--mut:#9a93c2;--txt:#f0eeff;--line:#2e2657}
+*{box-sizing:border-box;font-family:system-ui,-apple-system,sans-serif}
+body{background:var(--bg);color:var(--txt);margin:0;line-height:1.7}
+nav{display:flex;justify-content:space-between;align-items:center;padding:20px min(6vw,80px)}
+nav b{font-size:20px}.brand{color:var(--acc)}
+nav a{color:var(--mut);text-decoration:none;margin-left:24px;font-size:14px;font-weight:600}
+nav a.cta{background:var(--acc);color:#fff;padding:10px 18px;border-radius:9px}
+main{max-width:720px;margin:0 auto;padding:40px 20px 80px;font-size:16.5px}
+h1{font-size:32px;line-height:1.25;margin-bottom:6px}
+.date{color:var(--mut);font-size:13px;margin-bottom:30px}
+h2{font-size:22px;margin:38px 0 10px}
+p{margin:14px 0}ul,ol{margin:14px 0;padding-left:24px}li{margin:6px 0}
+a{color:var(--acc)}
+.callout{background:var(--card);border-left:3px solid var(--acc);border-radius:0 12px 12px 0;padding:16px 20px;margin:22px 0;font-size:15px}
+table{width:100%;border-collapse:collapse;margin:20px 0;font-size:14.5px}
+th{text-align:left;color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.4px;padding:8px 10px;border-bottom:1px solid var(--line)}
+td{padding:9px 10px;border-bottom:1px solid #221c4a}
+img{max-width:100%;border-radius:12px;margin:16px 0}
+.cta-box{background:var(--card);border-radius:14px;padding:24px;text-align:center;margin-top:44px}
+.cta-box a{display:inline-block;background:var(--acc);color:#fff;text-decoration:none;padding:13px 28px;border-radius:10px;font-weight:700;margin-top:12px}
+footer{border-top:1px solid var(--line);padding:26px;text-align:center;color:var(--mut);font-size:13px}</style></head><body><nav><b><a href="/" style="color:var(--txt);margin:0;text-decoration:none"><span class="brand">Shujaa</span>POS</a></b><div><a href="/blog">Blog</a><a href="/app" class="cta">Open the app</a></div></nav><main><h1>Offline POS Explained: How Local-First Tills Work</h1>
+<p class="date">ShujaaPOS · November 2026 · 5 min read</p>
+<p>"Offline-first" sounds like marketing. It's actually a specific way of building software, and understanding it helps you ask better questions when you're choosing a POS.</p>
+<h2>The classic setup</h2>
+<p>Most software you use is thin. The app on your screen is a window; the real work happens on a server far away. Gmail works this way. So do most POS systems: the till displays buttons, but the sale is written to a database in a data centre. Cut the connection and the window shows you nothing.</p>
+<h2>The local-first setup</h2>
+<p>An offline-first till flips that. The machine in your shop holds its own copy of the database. Selling, searching products, checking stock, printing a receipt: all of that is done right there, fast, with no network at all.</p>
+<p>Then there's a second piece: a <b>sync engine</b> running quietly in the background. Its whole job is to keep the local copy and the cloud copy telling the same story.</p>
+<h2>How the sync actually works</h2>
+<p>In our build, and this is a common pattern, every change becomes an <b>event</b>. A sale is an event. A new product is an event. A stock adjustment is an event. Events get numbered, queued, pushed to the cloud when a path exists, and acknowledged when they land. If two devices record changes, each carries enough identity (device, business, timestamp) to sort out who did what.</p>
+<p>That gives you a few quiet guarantees:</p>
+<ul>
+<li><b>Nothing is lost in a dropout.</b> Events wait in a durable queue on the device itself.</li>
+<li><b>Nothing is double-counted.</b> Duplicate pushes are detected by event ID and skipped.</li>
+<li><b>Every device sees the same catalog.</b> Product events flow down the same channel sales events flow up.</li>
+</ul>
+<h2>Why this matters for a shop in Kenya</h2>
+<p>Fibre here is better than it was, but it still drops. Power flickers. Routers get unplugged by cleaners. A business that depends on a live connection to take money is fragile in a way a business shouldn't be. Local-first means the internet is a bonus, not a dependency.</p>
+<div class="callout"><b>The one question to ask any vendor:</b> "Show me a completed sale with the Wi-Fi off, then show me it appearing in reports when you reconnect."</div><div class="cta-box"><b>Sell offline. Sync when you're back.</b><br><a href="/app">Try ShujaaPOS free</a></div></main><footer>ShujaaPOS · Offline-first point-of-sale · Nairobi, Kenya</footer></body></html>

@@ -1,0 +1,48 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>What Happens When Your POS Loses Internet? | ShujaaPOS</title>
+<meta name="description" content="Your fibre drops mid-sale. What actually happens to the transaction, your stock counts and your reports depends on one thing: how your POS was built.">
+<link rel="canonical" href="https://YOURDOMAIN/blog/pos-loses-internet">
+<style>:root{--bg:#0d0a1f;--card:#1e1840;--acc:#8b5cf6;--mut:#9a93c2;--txt:#f0eeff;--line:#2e2657}
+*{box-sizing:border-box;font-family:system-ui,-apple-system,sans-serif}
+body{background:var(--bg);color:var(--txt);margin:0;line-height:1.7}
+nav{display:flex;justify-content:space-between;align-items:center;padding:20px min(6vw,80px)}
+nav b{font-size:20px}.brand{color:var(--acc)}
+nav a{color:var(--mut);text-decoration:none;margin-left:24px;font-size:14px;font-weight:600}
+nav a.cta{background:var(--acc);color:#fff;padding:10px 18px;border-radius:9px}
+main{max-width:720px;margin:0 auto;padding:40px 20px 80px;font-size:16.5px}
+h1{font-size:32px;line-height:1.25;margin-bottom:6px}
+.date{color:var(--mut);font-size:13px;margin-bottom:30px}
+h2{font-size:22px;margin:38px 0 10px}
+p{margin:14px 0}ul,ol{margin:14px 0;padding-left:24px}li{margin:6px 0}
+a{color:var(--acc)}
+.callout{background:var(--card);border-left:3px solid var(--acc);border-radius:0 12px 12px 0;padding:16px 20px;margin:22px 0;font-size:15px}
+table{width:100%;border-collapse:collapse;margin:20px 0;font-size:14.5px}
+th{text-align:left;color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.4px;padding:8px 10px;border-bottom:1px solid var(--line)}
+td{padding:9px 10px;border-bottom:1px solid #221c4a}
+img{max-width:100%;border-radius:12px;margin:16px 0}
+.cta-box{background:var(--card);border-radius:14px;padding:24px;text-align:center;margin-top:44px}
+.cta-box a{display:inline-block;background:var(--acc);color:#fff;text-decoration:none;padding:13px 28px;border-radius:10px;font-weight:700;margin-top:12px}
+footer{border-top:1px solid var(--line);padding:26px;text-align:center;color:var(--mut);font-size:13px}</style></head><body><nav><b><a href="/" style="color:var(--txt);margin:0;text-decoration:none"><span class="brand">Shujaa</span>POS</a></b><div><a href="/blog">Blog</a><a href="/app" class="cta">Open the app</a></div></nav><main><h1>What Happens When Your POS Loses Internet?</h1>
+<p class="date">ShujaaPOS · November 2026 · 5 min read</p>
+<p>It's 2pm on a Saturday, your busiest hour. A customer is holding two crates of soda and the till just... stops. Not your till's fault. The fibre dropped. What happens next depends entirely on which kind of POS you're running.</p>
+<h2>Two very different failures</h2>
+<p>A cloud-only POS keeps its brain on a server somewhere else. Your till is just a screen that talks to it. When the connection drops, the screen goes quiet: no sale, no receipt, no stock update. You end up writing the transaction on paper and promising to key it in later.</p>
+<p>An offline-first POS keeps everything it needs on the machine in front of you. The catalogue, the prices, the stock count. When internet disappears, the sale finishes exactly as it would have otherwise. The only thing that changes is where the record goes.</p>
+<h2>What actually happens on an offline-first till</h2>
+<p>Here's the honest version, because we built one:</p>
+<ol>
+<li>The sale completes locally. Receipt prints, stock drops, change is shown. Nothing the customer sees changes.</li>
+<li>The record of that sale is written into a local queue called an outbox. Think of it as an envelope stamped "to the cloud" that sits in a drawer.</li>
+<li>When the internet comes back, the queue drains on its own. Each queued event gets pushed up, confirmed, and marked done. Nobody has to trigger anything.</li>
+<li>Every event carries its own ID, so if the same sale gets pushed twice after a flaky reconnect, the server ignores the duplicate.</li>
+</ol>
+<p>The result: your end-of-day report on the cloud dashboard matches what the till recorded. It just catches up a little late.</p>
+<h2>What still needs internet</h2>
+<p>Worth being straight about this. Some things genuinely cannot work offline:</p>
+<ul>
+<li>New products you add on another device won't appear until a sync happens.</li>
+<li>Cloud reports only show what has been pushed so far.</li>
+<li>M-Pesa confirmations from the provider still need a connection. The sale itself records fine either way.</li>
+</ul>
+<div class="callout"><b>Test this before you buy:</b> at any POS demo, ask them to switch off Wi-Fi and make a sale. If they can't, you know which type it is.</div>
+<h2>Your best fallback is still paper</h2>
+<p>Even with offline-first, keep a receipt book behind the counter. Machines fail, power fails harder than internet does. A till that keeps working through an outage plus a paper backup for the rare disaster is a setup that survives almost anything Nairobi throws at it.</p><div class="cta-box"><b>Sell offline. Sync when you're back.</b><br><a href="/app">Try ShujaaPOS free</a></div></main><footer>ShujaaPOS · Offline-first point-of-sale · Nairobi, Kenya</footer></body></html>
