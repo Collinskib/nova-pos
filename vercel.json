@@ -1,0 +1,8 @@
+{
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "rewrites": [
+    { "source": "/web/(.*)", "destination": "/$1" },
+    { "source": "/(.*)", "destination": "/web/$1" }
+  ]
+}
