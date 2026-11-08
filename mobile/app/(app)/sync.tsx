@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView } from "react-native";
 import { getDb, all, one } from "../../src/db/database";
-import { syncOnce } from "../../src/sync/engine";
+import { syncOnce, stopSync } from "../../src/sync/engine";
+import { creds } from "../../src/lib/api";
 import { useStore } from "../../src/store/store";
 import * as SecureStore from "expo-secure-store";
 
@@ -10,7 +11,7 @@ export default function Sync() {
   const [conf, setConf] = useState<any[]>([]);
   const [cursor, setCursor] = useState(0);
   const [hubUrl, setHubUrl] = useState("");
-  const { syncState, pending, hubUp, lastSync, ctx, syncError } = useStore();
+  const { syncState, pending, hubUp, lastSync, ctx, syncError, set } = useStore();
 
   const reload = async () => {
     const d = await getDb();
@@ -41,6 +42,9 @@ export default function Sync() {
       </View>
       <TouchableOpacity style={[s.btn, { marginVertical: 12 }]} onPress={async () => { await syncOnce(); reload(); }}>
         <Text style={s.btnT}>Sync now</Text></TouchableOpacity>
+      <TouchableOpacity style={[s.btn, { borderColor: "#e05a5a" }]}
+        onPress={async () => { stopSync(); await creds.clear(); set({ ctx: null, syncError: null }); }}>
+        <Text style={[s.btnT, { color: "#e05a5a" }]}>Sign out & re-pair</Text></TouchableOpacity>
       <Text style={s.h}>Outbox ({out.length})</Text>
       {out.map(e => <View key={e.event_id} style={s.li}>
         <Text style={s.ln}>{e.event_type} <Text style={s.ls}>#{e.device_sequence}</Text></Text>
