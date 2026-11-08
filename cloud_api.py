@@ -275,12 +275,13 @@ def status():
 def web_index():
     return app.send_static_file("index.html")
 
-@app.get("/<path:p>")
-def web_page(p):
-    """Static SPA pages with clean URLs: /app → app.html, /blog → blog/index.html."""
-    for cand in (p, p + ".html", p + "/index.html"):
-        if os.path.isfile(os.path.join(app.static_folder, cand)):
-            return app.send_static_file(cand)
+@app.errorhandler(404)
+def fallback(e):
+    p = request.path.lstrip("/")
+    if p and not p.startswith("api/"):
+        for cand in (p, p + ".html", p + "/index.html"):
+            if os.path.isfile(os.path.join(app.static_folder, cand)):
+                return app.send_static_file(cand)
     return jsonify({"error": "not found"}), 404
 
 @app.get("/health")
