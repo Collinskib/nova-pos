@@ -15,6 +15,9 @@ async function applyEvent(d: any, e: any) {
       VALUES(?,?,?,?,?,?,?,?,?)`, [e.entity_id, e.business_id, p.barcode, p.name,
       Math.round((p.price || 0) * 100), Math.round((p.cost || 0) * 100), p.stock ?? 0, p.taxable ?? 1, new Date().toISOString()]);
   }
+  else if (e.event_type === "PRODUCT_DELETED") {
+    await run(d, "DELETE FROM products WHERE id=?", [e.entity_id]);
+  }
   else if (e.event_type === "TRANSFER_CREATED") {
     const p = e.payload;
     await run(d, `INSERT OR IGNORE INTO transfers(id,business_id,from_branch_id,to_branch_id,status,note,created_at)
@@ -100,10 +103,14 @@ export async function syncOnce() {
         [top, new Date().toISOString()]);
       await hub.ack(base, top, key);
     }
-    // catalog refresh — repopulate if pairing-time fetch failed (silent empty)
+  } catch { /* pull failure: cursor untouched, retry later */ }
+
+  // 3. catalog refresh on its own cycle — product adds/edits must reach devices
+  // even when the event pull failed or yielded nothing (production churn, §11.3)
+  try {
     const prods = await hub.products(base, key).catch(() => []);
     if (prods.length) await seedProducts({ business: c.business }, prods, base);
-  } catch { /* pull failure: cursor untouched, retry later */ }
+  } catch { /* best-effort — local catalog stays usable offline */ }
 
   const left = (await one<{ n: number }>(d, "SELECT COUNT(*) n FROM sync_outbox WHERE cloud_acked=0"))!.n;
   st.set({ pending: left, syncState: left ? (st.hubUp ? "pending" : "offline") : "synced",
