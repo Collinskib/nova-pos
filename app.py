@@ -113,6 +113,10 @@ CREATE TABLE IF NOT EXISTS customers(
 ALTER TABLE sales ADD COLUMN customer_name TEXT;
 """)
 
+mig(6, """
+ALTER TABLE products ADD COLUMN price_wholesale REAL;
+""")
+
 DEFAULT_BUSINESS, DEFAULT_BRANCH = 1, 1
 
 def apply_migrations(c):
@@ -329,11 +333,11 @@ def products():
 def product_add():
     d = request.json; c = db()
     try:
-        c.execute("INSERT INTO products(barcode,name,category_id,brand_id,price,stock,cost,taxable,discount_qty,discount_pct,expiry,image) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-                  (d["barcode"], d["name"], d.get("category_id"), d.get("brand_id"), d["price"], d.get("stock",0), d.get("cost",0), d.get("taxable",1), d.get("discount_qty",0), d.get("discount_pct",0), d.get("expiry") or None, d.get("image") or None))
+        c.execute("INSERT INTO products(barcode,name,category_id,brand_id,price,price_wholesale,stock,cost,taxable,discount_qty,discount_pct,expiry,image) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (d["barcode"], d["name"], d.get("category_id"), d.get("brand_id"), d["price"], d.get("price_wholesale"), d.get("stock",0), d.get("cost",0), d.get("taxable",1), d.get("discount_qty",0), d.get("discount_pct",0), d.get("expiry") or None, d.get("image") or None))
     except sqlite3.IntegrityError: return jsonify({"error": "Barcode already exists"}), 400
     pid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
-    emit_event(c, "PRODUCT_CREATED", str(pid), {"product_id": pid, "product_uuid": str(uuid.uuid5(uuid.NAMESPACE_DNS, str(pid))), **{k: d.get(k) for k in ("barcode","name","price","stock","cost")}})
+    emit_event(c, "PRODUCT_CREATED", str(pid), {"product_id": pid, "product_uuid": str(uuid.uuid5(uuid.NAMESPACE_DNS, str(pid))), **{k: d.get(k) for k in ("barcode","name","price","price_wholesale","stock","cost")}})
     audit(c, "product.created", d["name"])
     c.commit(); return jsonify({"ok": True})
 
@@ -341,9 +345,9 @@ def product_add():
 @need_admin
 def product_edit(pid):
     d = request.json; c = db()
-    c.execute("UPDATE products SET barcode=?,name=?,category_id=?,brand_id=?,price=?,stock=?,cost=?,taxable=?,discount_qty=?,discount_pct=?,expiry=?,image=? WHERE id=?",
-              (d["barcode"], d["name"], d.get("category_id"), d.get("brand_id"), d["price"], d["stock"], d.get("cost",0), d.get("taxable",1), d.get("discount_qty",0), d.get("discount_pct",0), d.get("expiry") or None, d.get("image") or None, pid))
-    emit_event(c, "PRODUCT_UPDATED", str(pid), {"product_id": pid, **{k: d.get(k) for k in ("barcode","name","price","stock","cost")}})
+    c.execute("UPDATE products SET barcode=?,name=?,category_id=?,brand_id=?,price=?,price_wholesale=?,stock=?,cost=?,taxable=?,discount_qty=?,discount_pct=?,expiry=?,image=? WHERE id=?",
+              (d["barcode"], d["name"], d.get("category_id"), d.get("brand_id"), d["price"], d.get("price_wholesale"), d["stock"], d.get("cost",0), d.get("taxable",1), d.get("discount_qty",0), d.get("discount_pct",0), d.get("expiry") or None, d.get("image") or None, pid))
+    emit_event(c, "PRODUCT_UPDATED", str(pid), {"product_id": pid, **{k: d.get(k) for k in ("barcode","name","price","price_wholesale","stock","cost")}})
     audit(c, "product.updated", d["name"])
     c.commit(); return jsonify({"ok": True})
 
@@ -820,7 +824,7 @@ def localize_image(url):
 @app.get("/api/v1/products")
 @need_device
 def device_products():
-    prods = rows(db(), "SELECT id,barcode,name,price,cost,stock,taxable,discount_qty,discount_pct,image FROM products ORDER BY name")
+    prods = rows(db(), "SELECT id,barcode,name,price,price_wholesale,cost,stock,taxable,discount_qty,discount_pct,image FROM products ORDER BY name")
     for p in prods: p["image"] = localize_image(p["image"])
     return jsonify(prods)
 

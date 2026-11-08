@@ -33,6 +33,8 @@ export default function Pos() {
     ? Math.min(total, Math.round(total * (parseFloat(dV) || 0) / 100))
     : Math.min(total, Math.round((parseFloat(dV) || 0) * 100));
   const eff = () => Math.max(0, total - discC());
+  const [plist, setPlist] = useState<"retail" | "wholesale">("retail");
+  const pp = (p: any) => plist === "wholesale" && p.price_wholesale_cents ? p.price_wholesale_cents : p.price_cents;
   const [cust, setCust] = useState<string | null>(null);
   const [custs, setCusts] = useState<any[]>([]);
   const [newC, setNewC] = useState("");
@@ -72,6 +74,12 @@ export default function Pos() {
     <View style={s.c}>
       <View style={s.top}>
         <Text style={s.brand}>Nova POS</Text>
+        <View style={{ flexDirection: "row", gap: 6, marginBottom: 8 }}>
+          {(["retail", "wholesale"] as const).map(m => (
+            <TouchableOpacity key={m} onPress={() => setPlist(m)} style={[s.plc, plist === m && s.plcOn]}>
+              <Text style={[s.plcT, plist === m && { color: "#fff" }]}>{m === "retail" ? "Retail" : "Wholesale"}</Text>
+            </TouchableOpacity>))}
+        </View>
         <View style={{ flexDirection: "row", gap: 8 }}>
           <TextInput style={[s.search, { flex: 1 }]} placeholder="Search or scan barcode…" placeholderTextColor="#8b86a8"
             value={q} onChangeText={setQ} autoCapitalize="none" />
@@ -81,12 +89,12 @@ export default function Pos() {
       <FlatList data={prods} keyExtractor={p => p.id} numColumns={2} contentContainerStyle={{ padding: 8 }}
         refreshing={refreshing} onRefresh={pullRefresh}
         renderItem={({ item: p }) => (
-          <TouchableOpacity style={s.tile} onPress={() => addToCart(p)} disabled={p.stock <= 0}>
+          <TouchableOpacity style={s.tile} onPress={() => addToCart({ ...p, price_cents: pp(p) })} disabled={p.stock <= 0}>
             {p.image
               ? <Image source={{ uri: p.image }} style={s.img} resizeMode="cover" />
               : <View style={[s.img, s.imgPh]}><Text style={s.imgPhT}>{p.name.slice(0, 2).toUpperCase()}</Text></View>}
             <Text style={s.nm} numberOfLines={2}>{p.name}</Text>
-            <Text style={s.pr}>{fmt(p.price_cents)}</Text>
+            <Text style={s.pr}>{fmt(pp(p))}</Text>
             <Text style={[s.st, p.stock <= 10 && { color: "#f0a51f" }, p.stock <= 0 && { color: "#e05a5a" }]}>
               {p.stock <= 0 ? "out" : `${p.stock} left`}{cart[p.id] ? `  ×${cart[p.id].qty}` : ""}</Text>
           </TouchableOpacity>)} />
@@ -240,6 +248,9 @@ const s = StyleSheet.create({
   pchip: { backgroundColor: "#ece9f8", borderRadius: 9, paddingVertical: 12, paddingHorizontal: 10 },
   pchipOn: { backgroundColor: "#45209f" },
   pchipT: { color: "#14102b", fontWeight: "700", fontSize: 12 },
+  plc: { backgroundColor: "#1e1840", borderRadius: 9, paddingVertical: 6, paddingHorizontal: 12 },
+  plcOn: { backgroundColor: "#45209f" },
+  plcT: { color: "#9a93c2", fontWeight: "700", fontSize: 12 },
   rcT: { fontSize: 20, fontWeight: "800", color: "#14102b", textAlign: "center" },
   rcS: { color: "#6d6790", fontSize: 12, textAlign: "center" },
   rcD: { borderTopWidth: 1, borderStyle: "dashed", borderColor: "#d8d2ef", marginVertical: 8 },

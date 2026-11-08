@@ -11,9 +11,11 @@ async function applyEvent(d: any, e: any) {
   // inbound events are stored + deduped by event_id before this is called
   if (e.event_type === "PRODUCT_CREATED" || e.event_type === "PRODUCT_UPDATED") {
     const p = e.payload;
-    await run(d, `INSERT OR REPLACE INTO products(id,business_id,barcode,name,price_cents,cost_cents,stock,taxable,updated_at)
-      VALUES(?,?,?,?,?,?,?,?,?)`, [e.entity_id, e.business_id, p.barcode, p.name,
-      Math.round((p.price || 0) * 100), Math.round((p.cost || 0) * 100), p.stock ?? 0, p.taxable ?? 1, new Date().toISOString()]);
+    await run(d, "ALTER TABLE products ADD COLUMN price_wholesale_cents REAL").catch(() => {});
+    await run(d, `INSERT OR REPLACE INTO products(id,business_id,barcode,name,price_cents,price_wholesale_cents,cost_cents,stock,taxable,updated_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?)`, [e.entity_id, e.business_id, p.barcode, p.name,
+      Math.round((p.price || 0) * 100), p.price_wholesale != null ? Math.round(p.price_wholesale * 100) : null,
+      Math.round((p.cost || 0) * 100), p.stock ?? 0, p.taxable ?? 1, new Date().toISOString()]);
   }
   else if (e.event_type === "PRODUCT_DELETED") {
     await run(d, "DELETE FROM products WHERE id=?", [e.entity_id]);
