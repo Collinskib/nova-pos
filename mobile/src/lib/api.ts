@@ -42,7 +42,7 @@ export const creds = {
               cashier_id?: any; cashier_name?: string; role?: string }) =>
     Promise.all([SecureStore.setItemAsync("device_key", d.device_key),
       SecureStore.setItemAsync("device_id", String(d.device)),
-      SecureStore.setItemAsync("business", d.business), SecureStore.setItemAsync("branch", d.branch),
+      SecureStore.setItemAsync("business", String(d.business)), SecureStore.setItemAsync("branch", String(d.branch)),
       d.cashier_id != null ? SecureStore.setItemAsync("cashier_id", String(d.cashier_id)) : Promise.resolve(0 as any),
       d.cashier_name ? SecureStore.setItemAsync("cashier_name", d.cashier_name) : Promise.resolve(0 as any),
       d.role ? SecureStore.setItemAsync("role", d.role) : Promise.resolve(0 as any)]),
