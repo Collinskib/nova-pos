@@ -2,6 +2,8 @@
   "cleanUrls": true,
   "trailingSlash": false,
   "redirects": [
+    { "source": "/app", "destination": "https://shujaapos.onrender.com/app", "permanent": false },
+    { "source": "/app/:path*", "destination": "https://shujaapos.onrender.com/app/:path*", "permanent": false },
     { "source": "/what-is-a-pos-system", "destination": "/blog/what-is-a-pos-system" },
     { "source": "/pos-loses-internet", "destination": "/blog/pos-loses-internet" },
     { "source": "/offline-pos-explained", "destination": "/blog/offline-pos-explained" },
