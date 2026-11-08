@@ -104,7 +104,8 @@ export default function Pos() {
         refreshing={refreshing} onRefresh={pullRefresh}
         renderItem={({ item: p }) => (
           <TouchableOpacity style={s.tile} disabled={p.stock <= 0}
-            onPress={() => { const k = kids(p); k.length ? setVkids(k) : addToCart({ ...p, price_cents: pp(p) }); }}>
+            onPress={() => { const k = kids(p); const o = (p.pack_size || 0) > 1 ? [...k, { ...p, _pack: 1 }] : k;
+              o.length ? setVkids(o) : addToCart({ ...p, price_cents: pp(p) }); }}>
             {p.image
               ? <Image source={{ uri: p.image }} style={s.img} resizeMode="cover" />
               : <View style={[s.img, s.imgPh]}><Text style={s.imgPhT}>{p.name.slice(0, 2).toUpperCase()}</Text></View>}
@@ -144,11 +145,15 @@ export default function Pos() {
         <View style={s.mo}><View style={s.ms}>
           <Text style={s.msH}>Choose variant</Text>
           {vkids?.map(v => (
-            <TouchableOpacity key={v.id} disabled={v.stock <= 0}
+            <TouchableOpacity key={v._pack ? "pack" : v.id} disabled={v.stock <= 0}
               style={[s.pchip, { marginBottom: 6, flexDirection: "row", justifyContent: "space-between" }]}
-              onPress={() => { addToCart({ ...v, price_cents: pp(v), name: v.variant_label ? `${v.name} · ${v.variant_label}` : v.name }); setVkids(null); }}>
-              <Text style={s.pchipT}>{v.variant_label || v.name}</Text>
-              <Text style={s.pchipT}>{fmt(pp(v))}{v.stock <= 0 ? " · out" : ` · ${v.stock}`}</Text>
+              onPress={() => {
+                if (v._pack) { const u = Math.round((v.pack_price_cents ?? pp(v) * v.pack_size) / v.pack_size);
+                  addToCart({ ...v, price_cents: u }); setQty(v.id, v.pack_size); }
+                else addToCart({ ...v, price_cents: pp(v), name: v.variant_label ? `${v.name} · ${v.variant_label}` : v.name });
+                setVkids(null); }}>
+              <Text style={s.pchipT}>{v._pack ? `Pack ×${v.pack_size}` : v.variant_label || v.name}</Text>
+              <Text style={s.pchipT}>{v._pack ? fmt(v.pack_price_cents ?? pp(v) * v.pack_size) : fmt(pp(v))}{v.stock <= 0 ? " · out" : ` · ${v.stock}`}</Text>
             </TouchableOpacity>))}
           <TouchableOpacity onPress={() => setVkids(null)}><Text style={s.cancel}>Cancel</Text></TouchableOpacity>
         </View></View>

@@ -14,10 +14,13 @@ async function applyEvent(d: any, e: any) {
     await run(d, "ALTER TABLE products ADD COLUMN price_wholesale_cents REAL").catch(() => {});
     await run(d, "ALTER TABLE products ADD COLUMN parent_id TEXT").catch(() => {});
     await run(d, "ALTER TABLE products ADD COLUMN variant_label TEXT").catch(() => {});
-    await run(d, `INSERT OR REPLACE INTO products(id,business_id,barcode,name,price_cents,price_wholesale_cents,cost_cents,stock,taxable,parent_id,variant_label,updated_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, [e.entity_id, e.business_id, p.barcode, p.name,
+    await run(d, "ALTER TABLE products ADD COLUMN pack_size INTEGER").catch(() => {});
+    await run(d, "ALTER TABLE products ADD COLUMN pack_price_cents INTEGER").catch(() => {});
+    await run(d, `INSERT OR REPLACE INTO products(id,business_id,barcode,name,price_cents,price_wholesale_cents,cost_cents,stock,taxable,parent_id,variant_label,pack_size,pack_price_cents,updated_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [e.entity_id, e.business_id, p.barcode, p.name,
       Math.round((p.price || 0) * 100), p.price_wholesale != null ? Math.round(p.price_wholesale * 100) : null,
-      Math.round((p.cost || 0) * 100), p.stock ?? 0, p.taxable ?? 1, p.parent_id ?? null, p.variant_label ?? null, new Date().toISOString()]);
+      Math.round((p.cost || 0) * 100), p.stock ?? 0, p.taxable ?? 1, p.parent_id ?? null, p.variant_label ?? null,
+      p.pack_size ?? 0, p.pack_price != null ? Math.round(p.pack_price * 100) : null, new Date().toISOString()]);
   }
   else if (e.event_type === "PRODUCT_DELETED") {
     await run(d, "DELETE FROM products WHERE id=?", [e.entity_id]);
