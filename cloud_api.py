@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from flask import Flask, request, jsonify
 from functools import wraps
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="web", static_url_path="")
 URL = os.environ["SUPABASE_URL"].rstrip("/")
 KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 HUB_KEY = os.environ.get("CLOUD_API_KEY", "change-me")
@@ -270,6 +270,10 @@ def status():
     evs = pg("GET", "sync_events", params="?select=server_sequence&order=server_sequence.desc&limit=1") or []
     return jsonify({"latest_sequence": evs[0]["server_sequence"] if evs else 0,
                     "open_conflicts": len(pg("GET", "sync_conflicts", params="?resolved=eq.false&select=id") or [])})
+
+@app.get("/")
+def web_index():
+    return app.send_static_file("index.html")
 
 @app.get("/health")
 def health(): return jsonify({"ok": True})

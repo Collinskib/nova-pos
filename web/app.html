@@ -1,0 +1,193 @@
+<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ShujaaPOS</title>
+<style>
+:root{--bg:#0d0a1f;--card:#1e1840;--acc:#8b5cf6;--ok:#3ecf8e;--bad:#e05a5a;--mut:#9a93c2;--txt:#f0eeff;--line:#2e2657}
+*{box-sizing:border-box;font-family:system-ui,-apple-system,sans-serif}
+body{margin:0;background:var(--bg);color:var(--txt);min-height:100vh;display:flex;align-items:center;justify-content:center}
+.card{background:var(--card);border-radius:16px;padding:32px;width:min(420px,92vw)}
+.app{width:min(960px,96vw);padding:18px 0}
+h1{font-size:24px;margin:0 0 4px}.brand{color:var(--acc)}
+.sub{color:var(--mut);font-size:13px;margin-bottom:20px}
+label{display:block;font-size:13px;color:var(--mut);margin:10px 0 4px}
+input{width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:#161130;color:var(--txt);font-size:15px}
+button{padding:13px;border:0;border-radius:10px;background:var(--acc);color:#fff;font-weight:700;font-size:15px;margin-top:16px;cursor:pointer}
+button.ghost{background:transparent;border:1px solid #3d3472}
+button.w{width:100%}
+.row{display:flex;gap:12px;align-items:center;margin:18px 0}
+.line{flex:1;border-top:1px solid var(--line)}
+.msg{font-size:13px;margin-top:12px;padding:10px;border-radius:8px}
+.err{background:#3d1a2a;color:#ffb3b8}.okm{background:#14352a;color:#8ff0c4}
+.tabs{display:flex;gap:8px;margin-bottom:18px}
+.tabs span{flex:1;text-align:center;padding:9px;border-radius:9px;cursor:pointer;font-size:14px;font-weight:700;color:var(--mut);background:#161130}
+.tabs span.on{background:var(--acc);color:#fff}
+.k{color:var(--mut);font-size:12px;margin-bottom:4px}.v{font-size:16px;font-weight:700;margin-bottom:14px}
+.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.top h1{font-size:20px}
+.nav{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap}
+.nav span{padding:9px 16px;border-radius:9px;cursor:pointer;font-size:14px;font-weight:700;color:var(--mut);background:var(--card)}
+.nav span.on{background:var(--acc);color:#fff}
+.panel{background:var(--card);border-radius:16px;padding:20px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;color:var(--mut);font-size:12px;padding:8px 10px;border-bottom:1px solid var(--line);text-transform:uppercase;letter-spacing:.4px}
+td{padding:10px;border-bottom:1px solid #221c4a}
+tr:last-child td{border:0}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px}
+.kpi{background:var(--card);border-radius:14px;padding:16px}
+.kpi .kv{font-size:26px;font-weight:800}
+.badge{display:inline-block;padding:2px 10px;border-radius:999px;font-size:11px;font-weight:700;background:#14352a;color:var(--ok)}
+.badge.bad{background:#3d1a2a;color:var(--bad)}
+.mut{color:var(--mut)}.right{text-align:right}.mono{font-family:monospace;font-size:12px}
+a{color:var(--acc)}
+</style></head>
+<body><main id="m"></main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script>
+const sb = supabase.createClient(CONF.url, CONF.anon);
+const M = document.getElementById("m");
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const ksh = n => "KSh " + (+n || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const tok = () => sb.auth.getSession().then(r => r.data.session?.access_token);
+const api = (p, body) => tok().then(t => fetch(CONF.api + p, {
+  method: body ? "POST" : "GET", headers: {Authorization: "Bearer " + t, "Content-Type": "application/json"},
+  body: body ? JSON.stringify(body) : undefined}).then(r => r.json()));
+
+/* ---------- auth ---------- */
+let mode = "up";
+function login() {
+  M.innerHTML = `<div class="card"><h1>ShujaaPOS</h1>
+    <p class="sub">Sell anywhere — offline till, cloud dashboard.</p>
+    <div class="tabs"><span class="${mode==='up'?'on':''}" onclick="mode='up';login()">Create account</span>
+      <span class="${mode==='in'?'on':''}" onclick="mode='in';login()">Sign in</span></div>
+    <label>Email<input id="em" type="email" autocomplete="email"></label>
+    <label>Password<input id="pw" type="password"></label>
+    <button class="w" id="go" onclick="go()">${mode==='up'?'Create account':'Sign in'}</button>
+    <div class="row"><div class="line"></div><span class="sub" style="margin:0">or</span><div class="line"></div></div>
+    <button class="ghost w" onclick="google()">Continue with Google</button>
+    <div id="msg"></div></div>`;
+  document.getElementById("pw").onkeydown = e => { if (e.key === "Enter") go(); };
+}
+const say = (h, cls) => document.getElementById("msg").innerHTML = `<div class="msg ${cls}">${h}</div>`;
+async function go() {
+  go.disabled = true;
+  const r = mode === "up"
+    ? await sb.auth.signUp({email: em.value.trim(), password: pw.value})
+    : await sb.auth.signInWithPassword({email: em.value.trim(), password: pw.value});
+  go.disabled = false;
+  if (r.error) return say(esc(r.error.message), "err");
+  if (mode === "up" && !r.data.session) return say("Check your email — click the verification link, then sign in.", "okm");
+  boot();
+}
+function google() {
+  sb.auth.signInWithOAuth({provider: "google", options: {redirectTo: location.origin + location.pathname}});
+}
+
+/* ---------- onboarding ---------- */
+function onboard() {
+  M.innerHTML = `<div class="card"><h1>Set up your store</h1>
+    <p class="sub">This becomes your business — you can add branches after.</p>
+    <label>Store / business name<input id="bn" placeholder="e.g. Shujaa Mart"></label>
+    <label>First branch<input id="bb" value="Main"></label>
+    <button class="w" onclick="doOnboard()">Create my store</button><div id="msg"></div></div>`;
+}
+async function doOnboard() {
+  const r = await api("/api/onboarding", {business_name: bn.value, branch_name: bb.value});
+  if (r.error) return say(esc(r.error), "err");
+  boot();
+}
+
+/* ---------- app shell ---------- */
+let biz = null, role = null, page = "dash";
+async function boot() {
+  const {data} = await sb.auth.getSession();
+  if (!data.session) return login();
+  const me = await api("/api/me");
+  if (me.error === "unauthorized") return login();
+  const ms = me.memberships || [];
+  if (!ms.length) return onboard();
+  biz = ms[0].businesses; role = ms[0].role;
+  M.innerHTML = `<div class="app">
+    <div class="top"><h1>ShujaaPOS <span class="mut" style="font-size:13px;font-weight:400">· ${esc(biz?.name)}</span></h1>
+      <span class="sub" style="margin:0">${esc(me.email)} · ${esc(role)} <a href="#" onclick="sb.auth.signOut().then(boot);return false">sign out</a></span></div>
+    <div class="nav" id="nav"></div><div id="c"></div></div>`;
+  show("dash");
+}
+const TABS = {dash: "Dashboard", sales: "Sales", products: "Products", branches: "Branches"};
+function show(p) {
+  page = p;
+  document.getElementById("nav").innerHTML =
+    Object.entries(TABS).map(([k, l]) => `<span class="${k === p ? 'on' : ''}" onclick="show('${k}')">${l}</span>`).join("");
+  ({dash, sales, products, branches})[p]();
+}
+
+/* ---------- pages ---------- */
+async function dash() {
+  const c = document.getElementById("c");
+  c.innerHTML = `<div class="panel">Loading…</div>`;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const [{data: s}, {data: p}, {data: b}, {data: d}] = await Promise.all([
+    sb.from("sales").select("total,status,created_at"),
+    sb.from("products").select("id,active"),
+    sb.from("branches").select("id,name"),
+    sb.from("devices").select("id,device_name,active,last_seen_at")]);
+  const ts = (s || []).filter(x => x.status === "completed" && new Date(x.created_at) >= today);
+  const rev = ts.reduce((a, x) => a + +x.total, 0);
+  c.innerHTML = `<div class="kpis">
+    <div class="kpi"><div class="k">Today's sales</div><div class="kv">${ksh(rev)}</div></div>
+    <div class="kpi"><div class="k">Orders today</div><div class="kv">${ts.length}</div></div>
+    <div class="kpi"><div class="k">Products</div><div class="kv">${(p || []).length}</div></div>
+    <div class="kpi"><div class="k">Branches</div><div class="kv">${(b || []).length}</div></div></div>
+    <div class="panel"><h3 style="margin-top:0">Devices</h3>
+    ${(d || []).map(x => `<div class="row" style="margin:8px 0"><b>${esc(x.device_name)}</b>
+      <span class="badge ${x.active ? '' : 'bad'}">${x.active ? 'active' : 'revoked'}</span>
+      <span class="mut" style="margin-left:auto;font-size:12px">${x.last_seen_at ? 'seen ' + new Date(x.last_seen_at).toLocaleString() : 'never seen'}</span></div>`).join("")
+      || '<p class="mut">No devices yet — pair a till from the hub or mobile app.</p>'}</div>`;
+}
+async function sales() {
+  const c = document.getElementById("c");
+  c.innerHTML = `<div class="panel">Loading…</div>`;
+  const {data: s} = await sb.from("sales")
+    .select("receipt_number,total,status,created_at,branches(name),payments(method,amount)")
+    .order("created_at", {ascending: false}).limit(50);
+  c.innerHTML = `<div class="panel"><h3 style="margin-top:0">Recent sales</h3><table>
+    <tr><th>Receipt</th><th>Branch</th><th>When</th><th>Payment</th><th class="right">Total</th><th></th></tr>
+    ${(s || []).map(x => `<tr><td class="mono">${esc(x.receipt_number)}</td>
+      <td>${esc(x.branches?.name || "—")}</td><td class="mut">${new Date(x.created_at).toLocaleString()}</td>
+      <td>${(x.payments || []).map(y => esc(y.method)).join(", ") || "—"}</td>
+      <td class="right"><b>${ksh(x.total)}</b></td>
+      <td><span class="badge ${x.status === 'completed' ? '' : 'bad'}">${esc(x.status)}</span></td></tr>`).join("")
+      || '<tr><td colspan=6 class="mut">No sales synced yet</td></tr>'}</table></div>`;
+}
+async function products() {
+  const c = document.getElementById("c");
+  c.innerHTML = `<div class="panel">Loading…</div>`;
+  const {data: p} = await sb.from("products").select("name,sku,barcode,selling_price,cost_price,active").order("name");
+  c.innerHTML = `<div class="panel"><h3 style="margin-top:0">Products · ${(p || []).length}</h3><table>
+    <tr><th>Name</th><th>Barcode / SKU</th><th class="right">Price</th><th class="right">Cost</th><th></th></tr>
+    ${(p || []).map(x => `<tr><td>${esc(x.name)}</td><td class="mono mut">${esc(x.barcode || x.sku || "—")}</td>
+      <td class="right"><b>${ksh(x.selling_price)}</b></td><td class="right mut">${ksh(x.cost_price)}</td>
+      <td><span class="badge ${x.active ? '' : 'bad'}">${x.active ? 'active' : 'off'}</span></td></tr>`).join("")
+      || '<tr><td colspan=5 class="mut">No products yet — add them on the hub; they sync here.</td></tr>'}</table></div>`;
+}
+async function branches() {
+  const c = document.getElementById("c");
+  c.innerHTML = `<div class="panel">Loading…</div>`;
+  const {data: b} = await sb.from("branches").select("*").order("created_at");
+  c.innerHTML = `<div class="panel"><h3 style="margin-top:0">Branches</h3><table>
+    <tr><th>Name</th><th>Address</th><th class="right">Status</th></tr>
+    ${(b || []).map(x => `<tr><td><b>${esc(x.name)}</b></td><td class="mut">${esc(x.address || "—")}</td>
+      <td class="right"><span class="badge">${esc(x.status)}</span></td></tr>`).join("")}</table>
+    ${role === "admin" ? `<h4 style="margin:18px 0 4px">Add a branch</h4>
+    <div class="row" style="margin-top:8px"><input id="nbn" placeholder="Branch name" style="flex:2">
+      <input id="nba" placeholder="Address (optional)" style="flex:2">
+      <button onclick="addBranch()" style="margin:0">Add</button></div><div id="msg"></div>` : ""}</div>`;
+}
+async function addBranch() {
+  const r = await api("/api/branches", {business_id: biz.id, name: nbn.value, address: nba.value});
+  if (r.error) return say(esc(r.error), "err");
+  branches();
+}
+sb.auth.onAuthStateChange((e, s) => { if (e === "SIGNED_IN" || e === "SIGNED_OUT") boot(); });
+boot();
+</script></body></html>
