@@ -53,7 +53,7 @@ window.renameShop=()=>modal(`<h3>Shop name</h3><form onsubmit="renameSave(event)
 window.renameSave=async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target));
   await api('/api/settings',{method:'PUT',body:d});S.boot.settings.store_name=d.store_name;store.textContent=d.store_name;
   closeM();toast('Shop renamed to '+d.store_name)};
-document.querySelectorAll('nav a[data-s]').forEach(a=>a.onclick=()=>{document.querySelectorAll('nav a').forEach(x=>x.classList.remove('on'));a.classList.add('on');NAV[a.dataset.s]()});
+document.querySelectorAll('nav a[data-s]').forEach(a=>a.onclick=()=>{document.querySelectorAll('nav a').forEach(x=>x.classList.remove('on'));a.classList.add('on');clearInterval(window._poll);window._poll=null;NAV[a.dataset.s]()});
 window.go=s=>document.querySelector(`nav a[data-s="${s}"]`).click();
 const tgl=document.getElementById('themeTgl');
 const themeLbl=()=>{const d=document.documentElement.dataset.theme==='dark';tgl.querySelector('.sw').classList.toggle('on',d);tgl.querySelector('span').textContent=d?'Light mode':'Dark mode'};
@@ -286,6 +286,7 @@ async function pgOrders(){
     ot.innerHTML=s.map(x=>`<tr><td class="mono">${x.invoice_no}</td><td>${esc(x.cashier||x.cashier_name||'—')}</td><td><span class="badge ${x.device?'warn':'ok'}">${esc(x.device||'hub')}</span></td><td>${x.items}</td><td>${x.created.slice(11,16)}</td><td><span class="badge ${x.status==='void'?'bad':'ok'}">${x.status}</span></td><td style="text-align:right"><b>${money(x.total)}</b></td>
     <td style="text-align:right"><button class="btn small" onclick="viewRc(${x.id})">View</button> <button class="btn small" onclick="printRc(${x.id})">🖨 Print</button>${x.status==='completed'&&S.boot.user.role==='admin'?` <button class="btn small danger" onclick="voidSale(${x.id})">Void</button>`:''}</td></tr>`).join('')||'<tr><td colspan=8>No sales this day</td></tr>'};
   od.onchange=load;load();
+  window._poll=setInterval(()=>{if(!document.hidden)load()},4000);  // live sales feed from every device
 }
 window.viewRc=async id=>{const rc=await api('/api/receipt/'+id);modal(`<h3>${rc.sale.invoice_no} ${rc.sale.status==='void'?'<span class="badge bad">VOID</span>':''}</h3><div class="rc">${rcHtml(rc)}</div><div class="row" style="margin-top:14px"><button class="btn" onclick="closeM()">Close</button><button class="btn primary" style="flex:2" onclick="printRc(${id})">🖨 Print</button></div>`)};
 window.printRc=async id=>{const rc=await api('/api/receipt/'+id);const s=rc.sale,st=rc.settings;
