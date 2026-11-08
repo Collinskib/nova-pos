@@ -2,7 +2,7 @@
 """Localize POS to Kenya: KSh pricing, Nairobi store, real product images via Open Food Facts."""
 import sqlite3, json, urllib.request, urllib.parse, time
 
-DB = "/home/collins/Documents/pos-system/pos.db"
+DB = "/home/collins/Documents/nova-pos/pos.db"
 QUERIES = {  # product name -> OFF search term
  "Cola 330ml": "coca cola 330ml", "Orange Juice 1L": "orange juice",
  "Potato Chips 150g": "potato chips", "Chocolate Bar": "chocolate bar",
