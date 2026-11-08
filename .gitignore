@@ -8,3 +8,7 @@ static/uploads/
 static/imgcache/
 mobile/dist/
 mobile/.expo/
+dist/
+build/
+__pycache__/
+*.spec.bak

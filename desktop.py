@@ -29,7 +29,7 @@ if __name__ == "__main__":
     threading.Thread(target=serve, daemon=True).start()
     for _ in range(100):  # wait for the hub to come up
         try:
-            urllib.request.urlopen(BASE + "/login", timeout=0.5)
+            urllib.request.urlopen(BASE + "/", timeout=0.5)
             break
         except Exception:
             time.sleep(0.1)
