@@ -41,6 +41,8 @@ const $=s=>document.querySelector(s), M=$("#main"), cur="$";
 let S={cart:[],products:[],boot:{}};
 const api=async(p,o)=>{const r=await fetch(p,{headers:{'Content-Type':'application/json'},...o,body:o&&o.body?JSON.stringify(o.body):undefined});const j=await r.json().catch(()=>({}));if(r.status===401){location.reload();throw j}if(!r.ok){toast(j.error||'Error',1);throw j}return j};
 const money=n=>(S.boot.settings?.currency||'$')+Number(n||0).toFixed(2);
+const tm=s=>new Date((s||'').replace(' ','T')+'Z').toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});   // UTC → local
+const td=s=>new Date((s||'').replace(' ','T')+'Z').toLocaleString();
 const toast=(m,bad)=>{const t=document.createElement('div');t.className='toast';if(bad)t.style.borderColor='var(--bad)';t.textContent=m;document.body.append(t);setTimeout(()=>t.remove(),2600)};
 const modal=h=>{$("#modal").innerHTML=`<div class="modal" onclick="if(event.target===this)closeM()"><div>${h}</div></div>`};
 const closeM=()=>$("#modal").innerHTML="";
@@ -113,7 +115,7 @@ async function pgDash(){
   </div>
   <div class="card section"><div class="ph"><span class="pi">${ICO.rcpt}</span><h2>Recent Orders</h2><a class="viewall" onclick="go('orders')">View All →</a></div>
     <table><tr><th>Invoice</th><th>Cashier</th><th>Time</th><th>Status</th><th style="text-align:right">Total</th></tr>
-    ${d.recent.map(r=>`<tr><td class="mono">${r.invoice_no}</td><td>${esc(r.cashier||'—')}</td><td>${r.created.slice(11,16)}</td><td><span class="badge ${r.status==='void'?'bad':'ok'}">${r.status}</span></td><td style="text-align:right"><b>${money(r.total)}</b></td></tr>`).join('')||'<tr><td colspan=5>No orders yet</td></tr>'}</table></div>`;
+    ${d.recent.map(r=>`<tr><td class="mono">${r.invoice_no}</td><td>${esc(r.cashier||'—')}</td><td>${tm(r.created)}</td><td><span class="badge ${r.status==='void'?'bad':'ok'}">${r.status}</span></td><td style="text-align:right"><b>${money(r.total)}</b></td></tr>`).join('')||'<tr><td colspan=5>No orders yet</td></tr>'}</table></div>`;
 }
 
 /* ---------- POS ---------- */
@@ -176,7 +178,7 @@ const rcHtml=rc=>`<h4>${esc(rc.settings.store_name)}</h4><p class="c">${esc(rc.s
   <tr><td><b>Total</b></td><td style="text-align:right"><b>${money(rc.sale.total)}</b></td></tr>
   <tr><td>Cash</td><td style="text-align:right">${money(rc.sale.cash)}</td></tr>
   <tr><td>Change</td><td style="text-align:right">${money(rc.sale.change_due)}</td></tr></table><hr>
-  <p class="c">${rc.sale.invoice_no} · ${rc.sale.created}<br>Served by ${esc(rc.sale.cashier||'')}</p>`;
+  <p class="c">${rc.sale.invoice_no} · ${td(rc.sale.created)}<br>Served by ${esc(rc.sale.cashier||'')}</p>`;
 
 /* ---------- Products ---------- */
 async function pgProducts(){
@@ -283,7 +285,7 @@ async function pgOrders(){
   <p class="sub" style="margin-bottom:8px">Sales from this hub and every synced device — pick any date.</p>
   <div class="card"><table><tr><th>Invoice</th><th>Cashier</th><th>Device</th><th>Items</th><th>Time</th><th>Status</th><th style="text-align:right">Total</th><th></th></tr><tbody id="ot"></tbody></table></div>`;
   const load=async()=>{const s=await api('/api/sales?date='+od.value);
-    ot.innerHTML=s.map(x=>`<tr><td class="mono">${x.invoice_no}</td><td>${esc(x.cashier||x.cashier_name||'—')}</td><td><span class="badge ${x.device?'warn':'ok'}">${esc(x.device||'hub')}</span></td><td>${x.items}</td><td>${x.created.slice(11,16)}</td><td><span class="badge ${x.status==='void'?'bad':'ok'}">${x.status}</span></td><td style="text-align:right"><b>${money(x.total)}</b></td>
+    ot.innerHTML=s.map(x=>`<tr><td class="mono">${x.invoice_no}</td><td>${esc(x.cashier||x.cashier_name||'—')}</td><td><span class="badge ${x.device?'warn':'ok'}">${esc(x.device||'hub')}</span></td><td>${x.items}</td><td>${tm(x.created)}</td><td><span class="badge ${x.status==='void'?'bad':'ok'}">${x.status}</span></td><td style="text-align:right"><b>${money(x.total)}</b></td>
     <td style="text-align:right"><button class="btn small" onclick="viewRc(${x.id})">View</button> <button class="btn small" onclick="printRc(${x.id})">🖨 Print</button>${x.status==='completed'&&S.boot.user.role==='admin'?` <button class="btn small danger" onclick="voidSale(${x.id})">Void</button>`:''}</td></tr>`).join('')||'<tr><td colspan=8>No sales this day</td></tr>'};
   od.onchange=load;load();
   window._poll=setInterval(()=>{if(!document.hidden)load()},4000);  // live sales feed from every device
@@ -293,7 +295,7 @@ window.printRc=async id=>{const rc=await api('/api/receipt/'+id);const s=rc.sale
   const w=window.open('','_blank','width=320,height=600');
   w.document.write(`<html><head><title>Receipt ${s.invoice_no}</title><style>body{font-family:monospace;font-size:12px;margin:16px;max-width:280px}h3,p{text-align:center;margin:2px 0}table{width:100%;border-collapse:collapse;margin:8px 0}td{padding:2px 0}.tot{border-top:1px dashed #000;font-weight:700}</style></head><body>
   <h3>${esc(st.store_name||'Nova POS')}</h3><p>${esc(st.store_address||'')}<br>${esc(st.store_phone||'')}</p>
-  <p>Receipt <b>${s.invoice_no}</b> · ${s.created}${s.status==='void'?' · <b>VOID</b>':''}</p>
+  <p>Receipt <b>${s.invoice_no}</b> · ${td(s.created)}${s.status==='void'?' · <b>VOID</b>':''}</p>
   <table>${rc.items.map(i=>`<tr><td>${esc(i.name)} ×${i.qty}</td><td style="text-align:right">${money(i.total)}</td></tr>`).join('')}
   <tr><td class="tot">TOTAL</td><td class="tot" style="text-align:right">${money(s.total)}</td></tr>
   <tr><td>Cash</td><td style="text-align:right">${money(s.cash)}</td></tr>
@@ -333,7 +335,7 @@ window.printRep=async()=>{const{d,r,s}=await repData();
   <h2>Top selling items</h2><table><tr><th>Product</th><th>Qty</th><th>Revenue</th></tr>
   ${r.top.map(x=>`<tr><td>${esc(x.name)}</td><td>${x.qty}</td><td>${money(x.revenue)}</td></tr>`).join('')||'<tr><td colspan=3>None</td></tr>'}</table>
   <h2>Sales list</h2><table><tr><th>Invoice</th><th>Cashier</th><th>Device</th><th>Time</th><th>Status</th><th>Total</th></tr>
-  ${s.map(x=>`<tr><td>${x.invoice_no}</td><td>${esc(x.cashier||x.cashier_name||'—')}</td><td>${esc(x.device||'hub')}</td><td>${x.created.slice(11,16)}</td><td>${x.status}</td><td>${money(x.total)}</td></tr>`).join('')||'<tr><td colspan=6>No sales</td></tr>'}</table>
+  ${s.map(x=>`<tr><td>${x.invoice_no}</td><td>${esc(x.cashier||x.cashier_name||'—')}</td><td>${esc(x.device||'hub')}</td><td>${tm(x.created)}</td><td>${x.status}</td><td>${money(x.total)}</td></tr>`).join('')||'<tr><td colspan=6>No sales</td></tr>'}</table>
   <script>window.onload=()=>window.print()<\/script></body></html>`);
   w.document.close()};
 window.saveRep=async()=>{const{d,r,s}=await repData();
