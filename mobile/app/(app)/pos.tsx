@@ -9,7 +9,7 @@ import { fmt } from "../_layout";
 export default function Pos() {
   const [q, setQ] = useState("");
   const [prods, setProds] = useState<Product[]>([]);
-  const [cash, setCash] = useState("");
+
   const [sheet, setSheet] = useState(false);
   const { cart, addToCart, setQty, clearCart, cartTotal, ctx, set } = useStore();
 
@@ -24,6 +24,8 @@ export default function Pos() {
   };
   const [refreshing, setRefreshing] = useState(false);
   const [rc, setRc] = useState<any>(null);
+  const [pays, setPays] = useState<{ m: string; a: string }[]>([{ m: "cash", a: "" }]);
+  const paidC = () => pays.reduce((a, p) => a + Math.round((parseFloat(p.a) || 0) * 100), 0);
   const reload = () => searchProducts(q).then(setProds);
   useEffect(() => { reload(); }, [q]);
   const pullRefresh = async () => {
@@ -38,15 +40,15 @@ export default function Pos() {
   const charge = async () => {
     if (!ctx) return;
     try {
-      const r = await checkout(ctx, items, { method: "cash", amount: parseFloat(cash) || total / 100 });
-      const paid = Math.round((parseFloat(cash) || total / 100) * 100);
+      const r = await checkout(ctx, items, pays.map(p => ({ method: p.m, amount: parseFloat(p.a) || 0 })));
+      const paid = paidC();
       const lines = items.map(i => ({ name: i.name, qty: i.qty,
         total: Math.round(i.price_cents * i.qty * (1 - (i.discount_qty && i.qty >= i.discount_qty ? (i.discount_pct || 0) / 100 : 0))) }));
       setRc({ no: r.receipt_no, lines, total: r.total_cents, paid,
         tax: lines.filter(l => items.find(i => i.name === l.name)?.taxable).reduce((a, l) => a + Math.round(l.total * 0.16 / 1.16), 0),
         change: Math.max(0, paid - r.total_cents), cashier: ctx.cashier_name || "—",
         at: new Date().toLocaleString() });
-      clearCart(); setSheet(false); setCash("");
+      clearCart(); setSheet(false); setPays([{ m: "cash", a: "" }]);
       set({ pending: useStore.getState().pending + 1 });
     } catch (e: any) { Alert.alert("Cannot complete sale", e.message); }
   };
@@ -103,9 +105,24 @@ export default function Pos() {
       <Modal visible={sheet} transparent animationType="slide">
         <View style={s.mo}><View style={s.ms}>
           <Text style={s.msH}>Total {fmt(total)}</Text>
-          <TextInput style={s.cash} placeholder="Cash received" placeholderTextColor="#8b86a8"
-            keyboardType="decimal-pad" value={cash} onChangeText={setCash} autoFocus />
-          {cash !== "" && <Text style={s.chg}>Change {fmt(Math.max(0, Math.round(parseFloat(cash || "0") * 100) - total))}</Text>}
+          {pays.map((p, i) => (
+            <View key={i} style={{ flexDirection: "row", gap: 6, marginBottom: 8 }}>
+              {["cash", "mpesa", "card"].map(m => (
+                <TouchableOpacity key={m} onPress={() => { const q = [...pays]; q[i] = { ...q[i], m }; setPays(q); }}
+                  style={[s.pchip, p.m === m && s.pchipOn]}>
+                  <Text style={[s.pchipT, p.m === m && { color: "#fff" }]}>
+                    {m === "mpesa" ? "M-Pesa" : m[0].toUpperCase() + m.slice(1)}</Text>
+                </TouchableOpacity>))}
+              <TextInput style={[s.cash, { flex: 1, marginBottom: 0 }]} placeholder="Amount"
+                placeholderTextColor="#8b86a8" keyboardType="decimal-pad" value={p.a} autoFocus={i === 0}
+                onChangeText={v => { const q = [...pays]; q[i] = { ...q[i], a: v }; setPays(q); }} />
+            </View>))}
+          {pays.length < 2
+            ? <TouchableOpacity onPress={() => setPays([...pays, { m: "mpesa", a: ((total - paidC()) / 100).toFixed(2) }])}>
+                <Text style={{ color: "#8b5cf6", fontWeight: "700", marginBottom: 8 }}>+ Split payment</Text></TouchableOpacity>
+            : <TouchableOpacity onPress={() => setPays([pays[0]])}>
+                <Text style={{ color: "#6d6790", marginBottom: 8 }}>Remove split</Text></TouchableOpacity>}
+          <Text style={s.chg}>{paidC() < total ? `Remaining ${fmt(total - paidC())}` : `Change ${fmt(paidC() - total)}`}</Text>
           <TouchableOpacity style={s.btn} onPress={charge}><Text style={s.btnT}>Complete sale</Text></TouchableOpacity>
           <TouchableOpacity onPress={() => setSheet(false)}><Text style={s.cancel}>Cancel</Text></TouchableOpacity>
         </View></View>
@@ -175,6 +192,9 @@ const s = StyleSheet.create({
   cash: { borderWidth: 1, borderColor: "#e7e3f4", borderRadius: 12, padding: 15, fontSize: 18, marginBottom: 8, color: "#14102b" },
   chg: { color: "#3ecf8e", fontWeight: "700", marginBottom: 12, fontSize: 16 },
   cancel: { textAlign: "center", color: "#6d6790", padding: 14 },
+  pchip: { backgroundColor: "#ece9f8", borderRadius: 9, paddingVertical: 12, paddingHorizontal: 10 },
+  pchipOn: { backgroundColor: "#45209f" },
+  pchipT: { color: "#14102b", fontWeight: "700", fontSize: 12 },
   rcT: { fontSize: 20, fontWeight: "800", color: "#14102b", textAlign: "center" },
   rcS: { color: "#6d6790", fontSize: 12, textAlign: "center" },
   rcD: { borderTopWidth: 1, borderStyle: "dashed", borderColor: "#d8d2ef", marginVertical: 8 },

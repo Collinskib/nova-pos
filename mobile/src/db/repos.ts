@@ -56,7 +56,7 @@ async function nextReceipt(d: any) {
 }
 
 // ---------- atomic checkout (spec §8) ----------
-export async function checkout(ctx: any, items: CartItem[], payment: { method: string; amount: number }) {
+export async function checkout(ctx: any, items: CartItem[], payments: { method: string; amount: number }[]) {
   return tx(async d => {
     const id = uuid(), receipt = await nextReceipt(d);
     let sub = 0, tax = 0;
@@ -67,7 +67,7 @@ export async function checkout(ctx: any, items: CartItem[], payment: { method: s
       if (i.taxable) tax += Math.round(t * 0.16 / 1.16); // VAT-inclusive @16%
       return { product_id: i.id, name: i.name, qty: i.qty, unit_price_cents: i.price_cents, total_cents: t };
     });
-    const payCents = money(payment.amount);
+    const payCents = payments.reduce((a, p) => a + money(p.amount), 0);
     if (payCents < sub) throw new Error("Insufficient payment");
     // offline stock policy: refuse silently-negative stock (spec §9)
     for (const i of items) {
@@ -88,11 +88,15 @@ export async function checkout(ctx: any, items: CartItem[], payment: { method: s
         ON CONFLICT(business_id,branch_id,product_id) DO UPDATE SET on_hand=on_hand+excluded.on_hand`,
         [ctx.business, ctx.branch, l.product_id, -l.qty]);
     }
-    await run(d, "INSERT INTO payments(id,sale_id,method,amount_cents,created_at) VALUES(?,?,?,?,?)",
-      [uuid(), id, payment.method, payCents, now()]);
+    for (const p of payments) {
+      const a = money(p.amount);
+      if (a > 0) await run(d, "INSERT INTO payments(id,sale_id,method,amount_cents,created_at) VALUES(?,?,?,?,?)",
+        [uuid(), id, p.method, a, now()]);
+    }
     const event_id = await emit(d, ctx, "SALE_CREATED", id,
       { sale_id: id, receipt_no: receipt, total_cents: sub, tax_cents: tax, items: lines,
-        paid_cents: payCents, payment_method: payment.method, cashier_name: ctx.cashier_name || null });
+        paid_cents: payCents, payments: payments.map(p => ({ method: p.method, amount_cents: money(p.amount) })),
+        cashier_name: ctx.cashier_name || null });
     return { id, receipt_no: receipt, total_cents: sub, event_id };
   });
 }
