@@ -1,5 +1,6 @@
 <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Nova POS</title><script>document.documentElement.dataset.theme=localStorage.getItem('pos-theme')||'light'</script>
+<script src="/static/html5-qrcode.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/pos.css"></head><body>
@@ -10,7 +11,7 @@
   <a data-s="pos"><svg viewBox="0 0 24 24"><path d="M3 4h3l2.4 12.2A2 2 0 0 0 10.4 18h7.8a2 2 0 0 0 2-1.6L22 8H6"/><circle cx="11" cy="21" r="1.4"/><circle cx="18" cy="21" r="1.4"/></svg><span>Point of Sale</span></a>
   <a data-s="products"><svg viewBox="0 0 24 24"><path d="M12 2l9 5v10l-9 5-9-5V7z"/><path d="M12 12l9-5M12 12v10M12 12L3 7"/></svg><span>Products</span></a>
   <a data-s="inv"><svg viewBox="0 0 24 24"><path d="M21 12v6H3v-6M3 12l3-7h12l3 7zM10 15h4"/></svg><span>Inventory</span></a>
-  <a data-s="orders"><svg viewBox="0 0 24 24"><path d="M5 3h14v18l-2-1.5L15 21l-2-1.5L11 21l-2-1.5L7 21l-2-1.5z"/><path d="M9 8h6M9 12h6"/></svg><span>Orders</span></a>
+  <a data-s="orders"><svg viewBox="0 0 24 24"><path d="M5 3h14v18l-2-1.5L15 21l-2-1.5L11 21l-2-1.5L7 21l-2-1.5z"/><path d="M9 8h6M9 12h6"/></svg><span>Sales</span></a>
   <a data-s="reports"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span>Reports</span></a>
   <a data-s="users" class="adm hide"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c1.2-3 3.8-4.5 6.5-4.5s5.3 1.5 6.5 4.5"/><circle cx="17" cy="9" r="2.6"/><path d="M16.5 15.3c2 .2 4 1.4 5 3.7"/></svg><span>Users</span></a>
   <a data-s="devices" class="adm hide"><svg viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M10 19h4"/></svg><span>Devices</span></a>
@@ -120,7 +121,8 @@ async function pgPos(){
   S.cart=[];
   M.innerHTML=`<div class="top"><h1>Point of Sale</h1><span class="sub">Scan a barcode or click a product</span></div>
   <div class="pos"><div>
-    <div class="searchbox"><input id="ps" placeholder="Search or scan barcode…" autocomplete="off"></div>
+    <div class="searchbox"><input id="ps" placeholder="Search or scan barcode…" autocomplete="off">
+      <button class="btn" id="camscan" onclick="camScan('ps')" title="Scan barcode with camera">📷 Scan</button></div>
     <div class="pgrid" id="pg"></div>
   </div>
   <div class="cart"><h2>Current sale</h2><div id="ci"></div>
@@ -181,8 +183,8 @@ async function pgProducts(){
   const[ps,cs,bs,ss]=await Promise.all([api('/api/products'),api('/api/lookup/categories'),api('/api/lookup/brands'),api('/api/lookup/suppliers')]);
   S.boot.categories=cs;S.boot.brands=bs;S.boot.suppliers=ss;
   const adm=S.boot.user.role==='admin';
-  M.innerHTML=`<div class="top"><h1>Products</h1>${adm?'<span><button class="btn" onclick="impForm()">📄 Import CSV</button> <button class="btn primary" onclick="pForm()">+ New product</button></span>':''}</div>
-  <div class="toolbar"><input id="pq" placeholder="Filter…"><span class="sub">${ps.length} items</span></div>
+  M.innerHTML=`<div class="top"><h1>Products</h1>${adm?'<span><button class="btn" onclick="impForm()">📄 Import</button> <button class="btn primary" onclick="pForm()">+ New product</button></span>':''}</div>
+  <div class="toolbar"><input id="pq" placeholder="Filter…"><button class="btn" onclick="camScan('pq')" title="Scan barcode">📷 Scan</button><span class="sub">${ps.length} items</span></div>
   <div class="card section"><table><tr><th></th><th>Barcode</th><th>Name</th><th>Category</th><th>Brand</th><th style="text-align:right">Cost</th><th style="text-align:right">Price</th><th style="text-align:right">Stock</th>${adm?'<th></th>':''}</tr>
   <tbody id="pt"></tbody></table></div>
   <div class="grid cols section">
@@ -221,15 +223,36 @@ window.pSave=async(e,id)=>{e.preventDefault();const d=Object.fromEntries(new For
   ['price','stock','cost','category_id','brand_id','discount_qty','discount_pct'].forEach(k=>d[k]=+d[k]);d.taxable=e.target.taxable.checked?1:0;
   await api('/api/products'+(id?'/'+id:''),{method:id?'PUT':'POST',body:d});closeM();toast('Saved');pgProducts()};
 window.pdel=async id=>{if(confirm('Delete product?')){await api('/api/products/'+id,{method:'DELETE'});toast('Deleted');pgProducts()}};
-window.impForm=()=>modal(`<h3>Import products from CSV</h3>
-  <p class="sub" style="margin-bottom:10px">Columns: <code>barcode, name, price</code> required-ish (name+price). Optional: <code>category, brand, cost, stock, taxable, discount_qty, discount_pct, expiry, image</code>. Existing barcodes get updated; new categories/brands are created automatically.</p>
-  <input type="file" id="impfile" accept=".csv,text/csv" style="margin-bottom:12px">
-  <div id="impres" class="sub"></div>
-  <div class="row"><button type="button" class="btn" style="flex:1" onclick="closeM()">Cancel</button><button class="btn primary" style="flex:2" onclick="doImport()">Import</button></div>`);
-window.doImport=async()=>{const f=document.getElementById('impfile').files[0];if(!f)return toast('Choose a file',1);
-  const r=await api('/api/products/import',{method:'POST',body:{csv:await f.text()}});
-  document.getElementById('impres').innerHTML=`<b style="color:var(--ok)">${r.created} added, ${r.updated} updated</b>${r.skipped?` · <b style="color:var(--warn)">${r.skipped} skipped</b>`:''}${r.errors.map(e=>`<br>· ${esc(e)}`).join('')}`;
-  if(r.created||r.updated){toast('Import done');pgProducts()}};
+window.impForm=()=>modal(`<h3>Import products</h3>
+  <p class="sub" style="margin-bottom:10px">Supports <b>.csv</b>, <b>.json</b>, <b>.xlsx</b>. Columns: <code>barcode, name, price</code> + optional <code>category, brand, cost, stock, taxable, discount_qty, discount_pct, expiry, image</code>. Existing barcodes get updated.</p>
+  <div class="row" style="margin-bottom:12px"><button class="btn small" onclick="dlTpl('csv')">⤓ CSV template</button><button class="btn small" onclick="dlTpl('json')">⤓ JSON template</button></div>
+  <input type="file" id="impfile" accept=".csv,.json,.xlsx" style="margin-bottom:12px">
+  <div id="imprev"></div>
+  <div class="row"><button type="button" class="btn" style="flex:1" onclick="closeM()">Cancel</button><button class="btn primary" style="flex:2" onclick="impPreview()">Preview</button></div>`);
+window.dlTpl=fmt=>{const hdr="barcode,name,price,cost,stock,category,brand,taxable,discount_qty,discount_pct,expiry,image";
+  const row={barcode:"8901",name:"Sample Cola 330ml",price:150,cost:100,stock:50,category:"Drinks",brand:"Coca-Cola",taxable:1};
+  const txt=fmt==="csv"?`${hdr}\n8901,Sample Cola 330ml,150,100,50,Drinks,Coca-Cola,1,,,,\n`
+    :JSON.stringify([row],null,2);
+  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([txt],{type:"text/plain"}));
+  a.download=`products-template.${fmt}`;a.click()};
+const impBody=async()=>{const f=document.getElementById('impfile').files[0];if(!f)throw"Choose a file";
+  if(f.name.endsWith(".xlsx")){const u8=new Uint8Array(await f.arrayBuffer());let s="";
+    for(let i=0;i<u8.length;i+=0x8000)s+=String.fromCharCode.apply(null,u8.subarray(i,i+0x8000));
+    return{xlsx_b64:btoa(s)}}
+  if(f.name.endsWith(".json"))return{rows:JSON.parse(await f.text())};
+  return{csv:await f.text()}};
+window.impPreview=async()=>{try{const b=await impBody();b.dry_run=true;
+  const r=await api('/api/products/import',{method:'POST',body:b});
+  if(r.error)return toast(r.error,1);
+  const badge=a=>`<span class="badge ${a==='new'?'ok':a==='update'?'warn':'bad'}">${a}</span>`;
+  document.getElementById('imprev').innerHTML=`<p class="sub" style="margin:8px 0"><b>${r.valid}</b> valid · <b>${r.errors}</b> errors</p>
+    <div style="max-height:220px;overflow:auto"><table><tr><th></th><th>Name</th><th>Price</th><th>Status</th></tr>
+    ${r.plan.map(x=>`<tr><td class="sub">${x.row}</td><td>${esc(x.name)}</td><td>${x.price}</td><td>${badge(x.action)}${x.msg?` <span class="sub">${esc(x.msg)}</span>`:''}</td></tr>`).join('')}</table></div>
+    <div class="row" style="margin-top:10px"><button class="btn primary block" ${r.valid?'':'disabled'} onclick="impGo()">✓ Confirm import of ${r.valid} rows</button></div>`}
+  catch(e){toast("Import preview failed: "+e,1)}};
+window.impGo=async()=>{const r=await api('/api/products/import',{method:'POST',body:await impBody()});
+  document.getElementById('imprev').innerHTML=`<p class="sub" style="margin-top:8px"><b style="color:var(--ok)">${r.created} added, ${r.updated} updated</b>${r.skipped?` · <b style="color:var(--warn)">${r.skipped} skipped</b>`:''}${r.errors.map(e=>`<br>· ${esc(e)}`).join('')}</p>`;
+  toast('Import complete');pgProducts()};
 
 /* ---------- Inventory ---------- */
 async function pgInv(){
@@ -256,19 +279,33 @@ window.sSave=async e=>{e.preventDefault();const d=Object.fromEntries(new FormDat
 
 /* ---------- Orders ---------- */
 async function pgOrders(){
-  M.innerHTML=`<div class="top"><h1>Orders</h1><input type="date" id="od" value="${new Date().toISOString().slice(0,10)}"></div>
-  <div class="card"><table><tr><th>Invoice</th><th>Cashier</th><th>Items</th><th>Time</th><th>Status</th><th style="text-align:right">Total</th><th></th></tr><tbody id="ot"></tbody></table></div>`;
+  M.innerHTML=`<div class="top"><h1>Sales</h1><input type="date" id="od" value="${new Date().toISOString().slice(0,10)}"></div>
+  <p class="sub" style="margin-bottom:8px">Sales from this hub and every synced device — pick any date.</p>
+  <div class="card"><table><tr><th>Invoice</th><th>Cashier</th><th>Device</th><th>Items</th><th>Time</th><th>Status</th><th style="text-align:right">Total</th><th></th></tr><tbody id="ot"></tbody></table></div>`;
   const load=async()=>{const s=await api('/api/sales?date='+od.value);
-    ot.innerHTML=s.map(x=>`<tr><td class="mono">${x.invoice_no}</td><td>${esc(x.cashier||'—')}</td><td>${x.items}</td><td>${x.created.slice(11,16)}</td><td><span class="badge ${x.status==='void'?'bad':'ok'}">${x.status}</span></td><td style="text-align:right"><b>${money(x.total)}</b></td>
-    <td style="text-align:right"><button class="btn small" onclick="viewRc(${x.id})">View</button>${x.status==='completed'&&S.boot.user.role==='admin'?` <button class="btn small danger" onclick="voidSale(${x.id})">Void</button>`:''}</td></tr>`).join('')||'<tr><td colspan=7>No orders this day</td></tr>'};
+    ot.innerHTML=s.map(x=>`<tr><td class="mono">${x.invoice_no}</td><td>${esc(x.cashier||x.cashier_name||'—')}</td><td><span class="badge ${x.device?'warn':'ok'}">${esc(x.device||'hub')}</span></td><td>${x.items}</td><td>${x.created.slice(11,16)}</td><td><span class="badge ${x.status==='void'?'bad':'ok'}">${x.status}</span></td><td style="text-align:right"><b>${money(x.total)}</b></td>
+    <td style="text-align:right"><button class="btn small" onclick="viewRc(${x.id})">View</button> <button class="btn small" onclick="printRc(${x.id})">🖨 Print</button>${x.status==='completed'&&S.boot.user.role==='admin'?` <button class="btn small danger" onclick="voidSale(${x.id})">Void</button>`:''}</td></tr>`).join('')||'<tr><td colspan=8>No sales this day</td></tr>'};
   od.onchange=load;load();
 }
-window.viewRc=async id=>{const rc=await api('/api/receipt/'+id);modal(`<h3>${rc.sale.invoice_no} ${rc.sale.status==='void'?'<span class="badge bad">VOID</span>':''}</h3><div class="rc">${rcHtml(rc)}</div><div class="row" style="margin-top:14px"><button class="btn" onclick="closeM()">Close</button><button class="btn primary" style="flex:2" onclick="print()">Print</button></div>`)};
+window.viewRc=async id=>{const rc=await api('/api/receipt/'+id);modal(`<h3>${rc.sale.invoice_no} ${rc.sale.status==='void'?'<span class="badge bad">VOID</span>':''}</h3><div class="rc">${rcHtml(rc)}</div><div class="row" style="margin-top:14px"><button class="btn" onclick="closeM()">Close</button><button class="btn primary" style="flex:2" onclick="printRc(${id})">🖨 Print</button></div>`)};
+window.printRc=async id=>{const rc=await api('/api/receipt/'+id);const s=rc.sale,st=rc.settings;
+  const w=window.open('','_blank','width=320,height=600');
+  w.document.write(`<html><head><title>Receipt ${s.invoice_no}</title><style>body{font-family:monospace;font-size:12px;margin:16px;max-width:280px}h3,p{text-align:center;margin:2px 0}table{width:100%;border-collapse:collapse;margin:8px 0}td{padding:2px 0}.tot{border-top:1px dashed #000;font-weight:700}</style></head><body>
+  <h3>${esc(st.store_name||'Nova POS')}</h3><p>${esc(st.store_address||'')}<br>${esc(st.store_phone||'')}</p>
+  <p>Receipt <b>${s.invoice_no}</b> · ${s.created}${s.status==='void'?' · <b>VOID</b>':''}</p>
+  <table>${rc.items.map(i=>`<tr><td>${esc(i.name)} ×${i.qty}</td><td style="text-align:right">${money(i.total)}</td></tr>`).join('')}
+  <tr><td class="tot">TOTAL</td><td class="tot" style="text-align:right">${money(s.total)}</td></tr>
+  <tr><td>Cash</td><td style="text-align:right">${money(s.cash)}</td></tr>
+  <tr><td>Change</td><td style="text-align:right">${money(s.change_due)}</td></tr>
+  <tr><td>VAT incl.</td><td style="text-align:right">${money(s.vat)}</td></tr></table>
+  <p>Thank you!</p><script>window.onload=()=>{window.print()}<\/script></body></html>`);
+  w.document.close()};
 window.voidSale=async id=>{if(confirm('Void this sale? Stock will be returned.')){await api(`/api/sales/${id}/void`,{method:'POST'});toast('Sale voided');pgOrders()}};
 
 /* ---------- Reports ---------- */
 async function pgReports(){
-  M.innerHTML=`<div class="top"><h1>Reports</h1><input type="date" id="rd" value="${new Date().toISOString().slice(0,10)}"></div>
+  M.innerHTML=`<div class="top"><h1>Reports</h1><input type="date" id="rd" value="${new Date().toISOString().slice(0,10)}">
+  <button class="btn" onclick="printRep()">🖨 Print</button><button class="btn primary" onclick="saveRep()">⤓ Save / Drive</button></div>
   <div class="grid cards"><div class="card acc"><div class="k">Revenue</div><div class="v" id="rt">—</div></div>
   <div class="card"><div class="k">Orders</div><div class="v" id="ro">—</div></div></div>
   <div class="grid cols"><div class="card"><h2>Top selling items (all time)</h2><table><tr><th>Product</th><th style="text-align:right">Qty</th><th style="text-align:right">Revenue</th></tr><tbody id="tt"></tbody></table></div>
@@ -279,6 +316,35 @@ async function pgReports(){
     dt.innerHTML=r.daily.map(x=>`<tr><td class="mono">${x.invoice_no}</td><td>${esc(x.cashier||'—')}</td><td><span class="badge ${x.status==='void'?'bad':'ok'}">${x.status}</span></td><td style="text-align:right"><b>${money(x.total)}</b></td></tr>`).join('')||'<tr><td colspan=4>No sales this day</td></tr>'};
   rd.onchange=load;load();
 }
+
+/* ---------- Report export: print window + share/download (Drive via share sheet) ---------- */
+async function repData(){const d=rd.value;const[r,s]=await Promise.all([api('/api/reports?date='+d),api('/api/sales?date='+d)]);return{d,r,s}}
+window.printRep=async()=>{const{d,r,s}=await repData();
+  const w=window.open('','_blank','width=800,height=700');
+  w.document.write(`<html><head><title>Report ${d}</title><style>
+  body{font-family:Arial,sans-serif;margin:32px;color:#222;font-size:13px}h1{font-size:20px;margin:0}h2{font-size:14px;margin:22px 0 6px;color:#45209f}
+  .kpis{display:flex;gap:12px;margin:16px 0}.kpi{border:1px solid #ddd;border-radius:8px;padding:10px 16px}.kpi b{font-size:18px}
+  table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:5px 8px;border-bottom:1px solid #eee}th{color:#777;font-size:11px}
+  .muted{color:#888;font-size:11px}</style></head><body>
+  <h1>Daily Report — ${d}</h1><p class="muted">Nova Mart · generated ${new Date().toLocaleString()}</p>
+  <div class="kpis"><div class="kpi"><div>Revenue</div><b>${money(r.totals.total)}</b></div><div class="kpi"><div>Orders</div><b>${r.totals.orders}</b></div>
+  <div class="kpi"><div>VAT collected</div><b>${money(r.totals.vat||0)}</b></div></div>
+  <h2>Top selling items</h2><table><tr><th>Product</th><th>Qty</th><th>Revenue</th></tr>
+  ${r.top.map(x=>`<tr><td>${esc(x.name)}</td><td>${x.qty}</td><td>${money(x.revenue)}</td></tr>`).join('')||'<tr><td colspan=3>None</td></tr>'}</table>
+  <h2>Sales list</h2><table><tr><th>Invoice</th><th>Cashier</th><th>Device</th><th>Time</th><th>Status</th><th>Total</th></tr>
+  ${s.map(x=>`<tr><td>${x.invoice_no}</td><td>${esc(x.cashier||x.cashier_name||'—')}</td><td>${esc(x.device||'hub')}</td><td>${x.created.slice(11,16)}</td><td>${x.status}</td><td>${money(x.total)}</td></tr>`).join('')||'<tr><td colspan=6>No sales</td></tr>'}</table>
+  <script>window.onload=()=>window.print()<\/script></body></html>`);
+  w.document.close()};
+window.saveRep=async()=>{const{d,r,s}=await repData();
+  const csvRows=[["invoice","cashier","device","time","status","total"],
+    ...s.map(x=>[x.invoice_no,x.cashier||x.cashier_name||"",x.device||"hub",x.created,x.status,x.total]),
+    [],["summary"],["revenue",r.totals.total],["orders",r.totals.orders],["vat",r.totals.vat||0],
+    [],["top products"],["name","qty","revenue"],...r.top.map(x=>[x.name,x.qty,x.revenue])];
+  const csv=csvRows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+  const f=new File([csv],`nova-report-${d}.csv`,{type:"text/csv"});
+  if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:`Report ${d}`});toast("Shared — pick Drive to save")}
+  else{const a=document.createElement("a");a.href=URL.createObjectURL(f);a.download=f.name;a.click();
+       toast("CSV downloaded — upload it to Drive")}};
 
 /* ---------- Users ---------- */
 async function pgUsers(){
@@ -322,10 +388,28 @@ async function pgDevices(){
   <p class="hint">Pairing flow: click "Pair a device" → on the mobile/other device call <code>POST /api/v1/devices/pair</code> with the token → it gets a <code>device_key</code> used as the <code>X-Device-Key</code> header on <code>/api/v1/sync/*</code>.</p>`;
 }
 window.pairTok=async()=>{const r=await api('/api/devices',{method:'POST',body:{}});
-  modal(`<h3>Pair a device</h3><p class="sub" style="margin-bottom:12px">Give this code to the new device — it expires <b>${r.expires_at.slice(11,19)} UTC</b> and can be used once.</p>
-  <p class="mono" style="font-size:26px;text-align:center;padding:16px;background:var(--panel2);border-radius:10px;letter-spacing:.2em"><b>${r.token}</b></p>
+  const u=r.hub_url||location.origin, payload=encodeURIComponent(JSON.stringify({u,t:r.token}));
+  modal(`<h3>Pair a device</h3><p class="sub" style="margin-bottom:10px">On the mobile app: <b>same Wi-Fi</b>, then scan the QR — it fills hub URL + code. Or enter manually:</p>
+  <div style="text-align:center"><img src="/api/pair-qr?data=${payload}" width="180" height="180" style="border-radius:10px" onerror="this.style.display='none'"></div>
+  <p class="mono" style="text-align:center;padding:10px;background:var(--panel2);border-radius:10px;margin:10px 0 0;font-size:13px">Hub URL: <b>${u}</b></p>
+  <p class="mono" style="font-size:26px;text-align:center;padding:14px;background:var(--panel2);border-radius:10px;letter-spacing:.2em;margin:10px 0 0"><b>${r.token}</b></p>
   <div class="row" style="margin-top:14px"><button class="btn primary block" onclick="closeM();pgDevices()">Done</button></div>`)};
 window.revokeD=async id=>{if(confirm('Revoke this device? It will lose sync access; its local data stays on the device.')){await api('/api/devices/'+id+'/revoke',{method:'POST'});toast('Device revoked');pgDevices()}};
+
+/* ---------- Camera barcode scan (html5-qrcode — works in Chrome & Firefox) ---------- */
+window.camScan=async(inpId)=>{
+  modal(`<h3>Scan barcode</h3><div id="scanv" style="width:100%;border-radius:12px;overflow:hidden;background:#000;min-height:280px"></div>
+    <p class="sub" style="margin-top:8px">Point the camera at the barcode — fills the search box automatically.</p>
+    <div class="row" style="margin-top:10px"><button class="btn block" onclick="stopScan();closeM()">Cancel</button></div>`);
+  if(!window.Html5Qrcode){toast("Scanner library not loaded — hard-refresh the page",1);return}
+  try{
+    const h=new Html5Qrcode("scanv");window._scanQ=h;
+    await h.start({facingMode:"environment"},{fps:10,qrbox:{width:230,height:170}},txt=>{
+      stopScan();closeM();const el=document.getElementById(inpId);
+      el.value=txt;el.dispatchEvent(new Event("input"));el.dispatchEvent(new KeyboardEvent("keyup",{key:"Enter"}))},()=>{});
+  }catch(e){toast("Camera access denied or unavailable",1);stopScan();closeM()}
+};
+window.stopScan=()=>{const h=window._scanQ;if(h){window._scanQ=null;h.stop().catch(()=>{})}};
 
 /* ---------- Docs ---------- */
 const DOCS=[

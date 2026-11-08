@@ -39,7 +39,7 @@ def need_hub(f):
 
 EVENT_TYPES = {"SALE_CREATED","SALE_VOIDED","STOCK_MOVED","PRODUCT_CREATED","PRODUCT_UPDATED",
                "PRODUCT_DELETED","RETURN_POSTED","PURCHASE_RECEIVED","EXPENSE_POSTED",
-               "TRANSFER_DISPATCH","TRANSFER_RECEIVE"}
+               "TRANSFER_CREATED","TRANSFER_DISPATCH","TRANSFER_RECEIVE"}
 
 def apply_event(e):
     """Project an accepted event into central records (spec §3 cloud API role).
@@ -90,6 +90,44 @@ def apply_event(e):
                 "product_id": str(uuid.uuid5(uuid.NAMESPACE_DNS, str(i.get("product_id")))),
                 "movement_type": "PURCHASE_RECEIVED", "quantity_delta": float(i.get("qty", 0)),
                 "device_id": e["device_id"], "created_at": e.get("device_created_at") or utcnow()})
+    elif t == "TRANSFER_CREATED":
+        tr = pg("POST", "stock_transfers", {"business_id": bid, "from_branch_id": brid,
+                "to_branch_id": p.get("to_branch") if _is_uuid(p.get("to_branch")) else brid,
+                "status": "DRAFT", "note": p.get("note", ""), "id": p.get("transfer_id")})
+        tid = tr[0]["id"] if isinstance(tr, list) and tr else p.get("transfer_id")
+        for i in p.get("items", []):
+            pg("POST", "stock_transfer_items", {"transfer_id": tid,
+                "product_id": str(uuid.uuid5(uuid.NAMESPACE_DNS, str(i.get("product_id")))),
+                "qty_sent": i.get("qty", 0)})
+    elif t == "TRANSFER_DISPATCH":
+        tid = p.get("transfer_id") or e.get("entity_id")
+        pg("PATCH", "stock_transfers", {"status": "DISPATCHED", "dispatched_at": e.get("device_created_at") or utcnow()},
+           f"?id=eq.{tid}")
+        items = pg("GET", "stock_transfer_items", params=f"?transfer_id=eq.{tid}&select=product_id,qty_sent") or []
+        for i in items:   # TRANSFER_OUT on the dispatching branch (spec §10)
+            pg("POST", "stock_movements", {"business_id": bid, "branch_id": brid, "product_id": i["product_id"],
+                "movement_type": "TRANSFER_OUT", "quantity_delta": -float(i["qty_sent"]),
+                "reference_id": tid, "device_id": e["device_id"], "created_at": e.get("device_created_at") or utcnow()})
+    elif t == "TRANSFER_RECEIVE":
+        tid = p.get("transfer_id") or e.get("entity_id")
+        for r in p.get("receipts", []):
+            pu = str(uuid.uuid5(uuid.NAMESPACE_DNS, str(r.get("product_id"))))
+            cur = pg("GET", "stock_transfer_items", params=f"?transfer_id=eq.{tid}&product_id=eq.{pu}&select=id,qty_received") or []
+            if cur:
+                pg("PATCH", "stock_transfer_items",
+                   {"qty_received": (cur[0]["qty_received"] or 0) + float(r.get("qty", 0)),
+                    "qty_damaged": (cur[0].get("qty_damaged") or 0) + float(r.get("damaged", 0))},
+                   f"?id=eq.{cur[0]['id']}")
+            if r.get("qty", 0) > 0:   # TRANSFER_IN only when goods physically arrive (spec §10)
+                pg("POST", "stock_movements", {"business_id": bid, "branch_id": brid, "product_id": pu,
+                    "movement_type": "TRANSFER_IN", "quantity_delta": float(r["qty"]),
+                    "reference_id": tid, "device_id": e["device_id"], "created_at": e.get("device_created_at") or utcnow()})
+        pg("PATCH", "stock_transfers", {"status": p.get("status", "RECEIVED"), "received_at": e.get("device_created_at") or utcnow()},
+           f"?id=eq.{tid}")
+
+def _is_uuid(v):
+    try: uuid.UUID(str(v)); return True
+    except (ValueError, TypeError): return False
 
 # ---- Supabase Auth: exchange credentials for a user JWT (§4.3) ----
 @app.post("/api/v1/auth/login")

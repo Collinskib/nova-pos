@@ -5,3 +5,6 @@ __pycache__/
 .venv/
 static/uploads/
 .env
+static/imgcache/
+mobile/dist/
+mobile/.expo/

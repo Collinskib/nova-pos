@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """POS & Inventory Management System — Flask + SQLite."""
-import sqlite3, hashlib, secrets, json, os, uuid, urllib.request
+import sqlite3, hashlib, secrets, json, os, uuid, urllib.request, socket
 from datetime import datetime, date, timezone, timedelta
 from functools import wraps
 from flask import Flask, request, jsonify, session, render_template, redirect
@@ -92,6 +92,10 @@ ALTER TABLE stock_entries ADD COLUMN branch_id INT DEFAULT 1;
 ALTER TABLE stock_entries ADD COLUMN movement_id INT;
 UPDATE sales SET sale_uuid=lower(hex(randomblob(4)))||'-'||lower(hex(randomblob(2)))||'-'||lower(hex(randomblob(2)))||'-'||lower(hex(randomblob(2)))||'-'||lower(hex(randomblob(6))) WHERE sale_uuid IS NULL;
 INSERT OR IGNORE INTO receipt_counters(branch_id,next_no) VALUES(1,1);
+""")
+# 0003 — accountability: cashier identity on device-initiated sales
+mig(3, """
+ALTER TABLE sales ADD COLUMN cashier_name TEXT;
 """)
 
 DEFAULT_BUSINESS, DEFAULT_BRANCH = 1, 1
@@ -341,9 +345,24 @@ def product_del(pid):
 @app.post("/api/products/import")
 @need_admin
 def products_import():
-    import csv, io
-    rdr = csv.DictReader(io.StringIO(request.json.get("csv", "")))
-    c = db(); created = updated = skipped = 0; errors = []
+    import csv, io, base64
+    body = request.json or {}
+    rows_in = body.get("rows")
+    if body.get("xlsx_b64"):  # Excel file → rows via openpyxl (optional dep)
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(base64.b64decode(body["xlsx_b64"])), read_only=True)
+            ws = wb.active; it = ws.iter_rows(values_only=True)
+            hdr = [str(h or "").strip().lower() for h in next(it)]
+            rows_in = [{hdr[i]: (str(v) if v is not None else "") for i, v in enumerate(r) if i < len(hdr)} for r in it]
+        except ImportError:
+            return jsonify({"error": "xlsx import needs openpyxl — save as CSV instead"}), 400
+        except Exception as e:
+            return jsonify({"error": f"couldn't read xlsx: {e}"}), 400
+    if rows_in is None:
+        rows_in = [dict(r) for r in csv.DictReader(io.StringIO(body.get("csv", "")))]
+    dry = bool(body.get("dry_run"))
+    c = db(); created = updated = skipped = 0; errors = []; plan = []
     def lk(table, name):
         name = (name or "").strip()
         if not name: return None
@@ -351,7 +370,7 @@ def products_import():
         if r: return r["id"]
         c.execute(f"INSERT INTO {table}(name) VALUES(?)", (name,))
         return c.execute("SELECT last_insert_rowid()").fetchone()[0]
-    for n, raw in enumerate(rdr, 2):
+    for n, raw in enumerate(rows_in, 2):
         r = {(k or "").strip().lower(): (v or "").strip() for k, v in raw.items()}
         try:
             name, price = r.get("name", ""), float(r.get("price") or 0)
@@ -362,7 +381,11 @@ def products_import():
                     0 if r.get("taxable", "1").lower() in ("0", "no", "false", "exempt") else 1,
                     float(r.get("discount_qty") or 0), float(r.get("discount_pct") or 0),
                     r.get("expiry") or None, r.get("image") or None)
-            if bc and c.execute("SELECT 1 FROM products WHERE barcode=?", (bc,)).fetchone():
+            is_upd = bool(bc and c.execute("SELECT 1 FROM products WHERE barcode=?", (bc,)).fetchone())
+            if dry:
+                plan.append({"row": n, "name": name, "price": price, "barcode": bc or "",
+                             "action": "update" if is_upd else "new"})
+            elif is_upd:
                 c.execute("""UPDATE products SET name=?,category_id=?,brand_id=?,price=?,stock=?,cost=?,taxable=?,discount_qty=?,discount_pct=?,expiry=?,image=COALESCE(?,image) WHERE barcode=?""",
                           (name, vals[2], vals[3], price, vals[5], vals[6], vals[7], vals[8], vals[9], vals[10], vals[11], bc))
                 updated += 1
@@ -372,6 +395,12 @@ def products_import():
                 created += 1
         except Exception as e:
             skipped += 1; errors.append(f"row {n}: {e}")
+            if dry: plan.append({"row": n, "name": r.get("name") or "—", "price": r.get("price") or "—",
+                                 "barcode": r.get("barcode") or "", "action": "error", "msg": str(e)})
+    if dry:
+        c.rollback()   # lk() may have inserted lookup rows during preview — discard
+        return jsonify({"plan": plan[:500], "valid": len(plan) - sum(1 for x in plan if x["action"] == "error"),
+                        "errors": len([x for x in plan if x["action"] == "error"])})
     c.commit()
     return jsonify({"created": created, "updated": updated, "skipped": skipped, "errors": errors[:10]})
 
@@ -483,8 +512,10 @@ def receipt(sid):
 @need_login
 def sales_list():
     d = request.args.get("date", date.today().isoformat()); c = db()
-    return jsonify(rows(c, """SELECT s.*, u.name cashier, (SELECT COUNT(*) FROM sale_items si WHERE si.sale_id=s.id) items
-        FROM sales s LEFT JOIN users u ON u.id=s.user_id WHERE date(s.created)=? ORDER BY s.id DESC""", (d,)))
+    return jsonify(rows(c, """SELECT s.*, u.name cashier, dv.device_name device,
+        (SELECT COUNT(*) FROM sale_items si WHERE si.sale_id=s.id) items
+        FROM sales s LEFT JOIN users u ON u.id=s.user_id
+        LEFT JOIN devices dv ON dv.id=s.device_id WHERE date(s.created)=? ORDER BY s.id DESC""", (d,)))
 
 @app.post("/api/sales/<int:sid>/void")
 @need_admin
@@ -656,7 +687,32 @@ def settings():
 # BUILD.md — devices, pairing, sync, purchases, expenses, returns, backup
 # ===========================================================================
 EVENT_TYPES = {"SALE_CREATED","SALE_VOIDED","STOCK_MOVED","PRODUCT_CREATED","PRODUCT_UPDATED",
-               "PRODUCT_DELETED","RETURN_POSTED","PURCHASE_RECEIVED","EXPENSE_POSTED","TRANSFER_DISPATCH","TRANSFER_RECEIVE"}
+               "PRODUCT_DELETED","RETURN_POSTED","PURCHASE_RECEIVED","EXPENSE_POSTED","TRANSFER_CREATED","TRANSFER_DISPATCH","TRANSFER_RECEIVE"}
+
+def lan_ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80)); ip = s.getsockname()[0]; s.close(); return ip
+    except Exception:
+        return "127.0.0.1"
+
+@app.get("/api/pair-qr")
+@need_admin
+def pair_qr():
+    """Local QR PNG for the pairing payload — no external service needed (§10.2)."""
+    try:
+        import qrcode, qrcode.image.svg, io
+        from flask import send_file
+        img = qrcode.make(request.args.get("data", ""), image_factory=qrcode.image.svg.SvgImage)
+        buf = io.BytesIO(); img.save(buf); buf.seek(0)
+        return send_file(buf, mimetype="image/svg+xml")
+    except ImportError:
+        return "", 404
+
+@app.get("/api/v1/ping")
+def lan_ping():
+    """Unauthenticated LAN discovery beacon for the mobile auto-detect scan."""
+    return jsonify({"service": "nova-pos-hub", "version": 1})
 
 @app.route("/api/devices", methods=["GET", "POST"])
 @need_admin
@@ -668,7 +724,7 @@ def devices():
         c.execute("INSERT INTO pairing_tokens(token,business_id,branch_id,created_by,expires_at) VALUES(?,?,?,?,?)",
                   (tok, DEFAULT_BUSINESS, DEFAULT_BRANCH, session["uid"], exp))
         audit(c, "device.pairing_issued", tok)
-        c.commit(); return jsonify({"ok": True, "token": tok, "expires_at": exp})
+        c.commit(); return jsonify({"ok": True, "token": tok, "expires_at": exp, "hub_url": f"http://{lan_ip()}:5050"})
     return jsonify(rows(c, "SELECT id,uuid,device_name,device_type,active,last_seen_at,created_at FROM devices ORDER BY id"))
 
 @app.post("/api/v1/devices/pair")
@@ -707,6 +763,71 @@ def device_revoke(did):
     audit(c, "device.revoked", f"device {did}")
     c.commit(); return jsonify({"ok": True})
 
+IMG_CACHE = os.path.join(BASE, "static", "imgcache")
+os.makedirs(IMG_CACHE, exist_ok=True)
+
+def localize_image(url):
+    """Cache a remote image under /static/imgcache so LAN devices fetch it locally.
+    Requests thumbnail variants where the source supports it (mobile shows ~72px)."""
+    if not url or not str(url).startswith("http"): return url
+    import re
+    src = re.sub(r"(\.org/wikipedia/[^?]*?/thumb/[^?]+?/)\d+px-", r"\g<1>160px-", url)  # Wikimedia thumbs → 160px
+    name = hashlib.sha256(url.encode()).hexdigest()[:16]
+    for f in os.listdir(IMG_CACHE):
+        if f.startswith(name): return f"/static/imgcache/{f}"
+    try:
+        r = urllib.request.urlopen(src, timeout=8)
+        ext = {"image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif",
+               "image/webp": ".webp", "image/svg+xml": ".svg"}.get(
+               r.headers.get("Content-Type", "").split(";")[0], ".jpg")
+        fname = name + ext
+        open(os.path.join(IMG_CACHE, fname), "wb").write(r.read(500_000))  # cap ~500KB
+        return f"/static/imgcache/{fname}"
+    except Exception:
+        return url  # cache later; mobile shows placeholder meanwhile
+
+@app.get("/api/v1/products")
+@need_device
+def device_products():
+    prods = rows(db(), "SELECT id,barcode,name,price,cost,stock,taxable,discount_qty,discount_pct,image FROM products ORDER BY name")
+    for p in prods: p["image"] = localize_image(p["image"])
+    return jsonify(prods)
+
+def apply_sale_event(c, dev, e):
+    """Project a pushed SALE_CREATED into local sales rows. Idempotent via
+    sale_uuid — re-delivery and own-hub echoes are no-ops."""
+    p = e.get("payload") or {}
+    suid = str(p.get("sale_id") or p.get("sale_uuid") or e.get("entity_id") or "")
+    if not suid or c.execute("SELECT 1 FROM sales WHERE sale_uuid=?", (suid,)).fetchone():
+        return
+    cents = p.get("total_cents") is not None
+    f = lambda v: round((v or 0) / 100, 2) if cents else round(float(v or 0), 2)
+    inv = p.get("receipt_no") or p.get("invoice_no") or "DEV-" + suid[:8]
+    if c.execute("SELECT 1 FROM sales WHERE invoice_no=?", (inv,)).fetchone():
+        inv += "-" + suid[:4]
+    cname = p.get("cashier_name")
+    uid = None
+    if cname:
+        u = c.execute("SELECT id FROM users WHERE name=? OR username=?", (cname, cname)).fetchone()
+        uid = u["id"] if u else None
+    c.execute("""INSERT INTO sales(invoice_no,total,cash,change_due,vat,discount,user_id,status,created,
+                 sale_uuid,business_id,branch_id,device_id,cashier_name) VALUES(?,?,?,0,?,0,?,'completed',?,?,?,?,?,?)""",
+              (inv, f(p.get("total_cents") or p.get("total")), f(p.get("total_cents") or p.get("total")),
+               f(p.get("tax_cents") or p.get("vat")), uid,
+               (e.get("device_created_at") or utcnow())[:19], suid, dev["business_id"], dev["branch_id"], dev["id"], cname))
+    sid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
+    for i in p.get("items", []):
+        lt = f(i.get("total_cents") if "total_cents" in i else i.get("total"))
+        up = f(i.get("unit_price_cents") if "unit_price_cents" in i else (i.get("total") or 0) / max(i.get("qty") or 1, 1))
+        c.execute("INSERT INTO sale_items(sale_id,product_id,name,price,qty,total) VALUES(?,?,?,?,?,?)",
+                  (sid, str(i.get("product_id") or ""), i.get("name") or "item", up, i.get("qty") or 0, lt))
+
+@app.get("/api/v1/users")
+@need_device
+def device_users():
+    """Staff list for the mobile "who's on this till" picker — no passwords."""
+    return jsonify(rows(db(), "SELECT id,username,name,role FROM users ORDER BY id"))
+
 # ---------- Synchronization (§8) ----------
 @app.post("/api/v1/sync/push")
 @need_device
@@ -738,6 +859,8 @@ def sync_push():
             c.execute("INSERT INTO sync_receipts(event_id,device_id,acked_at,status) VALUES(?,?,?,?)",
                       (eid, dev["id"], utcnow(), "accepted"))
             accepted.append({"event_id": eid, "server_sequence": r[0]})
+            if e["event_type"] == "SALE_CREATED":
+                apply_sale_event(c, dev, e)
         audit(c, "sync.push", f"device {dev['id']}: {len(accepted)} accepted, {len(dup)} dup, {len(rejected)} rejected",
               actor=f"device:{dev['id']}")
         c.execute("COMMIT")
@@ -958,4 +1081,4 @@ if __name__ == "__main__":
     init_db()
     if CLOUD_BRANCH_UUID and os.environ.get("POS_AUTOSYNC", "1") == "1":
         import threading; threading.Thread(target=_auto_sync, daemon=True).start()
-    app.run(host="127.0.0.1", port=5050, debug=False)
+    app.run(host="0.0.0.0", port=5050, debug=False)

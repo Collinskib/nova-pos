@@ -1,0 +1,255 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Nova POS — carousel</title>
+<style>
+  :root{
+    --bg:#120c26; --bg2:#0e0920;
+    --panel:#1e1840; --panel2:#271f52; --line:#342b66;
+    --text:#ece9f8; --dim:#9a93c2;
+    --acc:#8b5cf6; --acc2:#6d4fe0;
+    --ok:#34c47c; --warn:#e0a53f; --bad:#f1616b;
+    --paper:#f7f4ee; --ink:#2a2240;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{background:#000;font-family:"Noto Sans",system-ui,sans-serif}
+  .slide{display:none;width:1080px;height:1350px;position:relative;overflow:hidden;
+    background:radial-gradient(1100px 750px at 78% -8%,#241a52 0%,var(--bg) 55%,var(--bg2) 100%);
+    color:var(--text)}
+  .slide.on{display:block}
+  .pad{position:absolute;inset:0;padding:88px 84px;display:flex;flex-direction:column}
+  .kicker{font-family:"DejaVu Sans Mono",monospace;font-size:23px;letter-spacing:.32em;
+    color:var(--acc);text-transform:uppercase;display:flex;align-items:center;gap:18px}
+  .kicker::before{content:"";width:44px;height:3px;background:var(--acc);display:inline-block}
+  .foot{position:absolute;left:84px;right:84px;bottom:56px;display:flex;justify-content:space-between;
+    align-items:center;font-family:"DejaVu Sans Mono",monospace;font-size:21px;color:var(--dim)}
+  .foot .swipe{color:var(--acc);letter-spacing:.14em}
+  .brand{position:absolute;top:86px;right:84px;display:flex;align-items:center;gap:14px;
+    font-weight:800;font-size:24px;letter-spacing:.02em;color:var(--text)}
+  .brand .lg{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,var(--acc),var(--acc2));
+    display:grid;place-items:center}
+  .brand .lg svg{width:24px;height:24px;fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  h1{font-weight:800;font-size:96px;line-height:1.02;letter-spacing:-.025em;margin-top:34px}
+  h1 .a{background:linear-gradient(120deg,#b79cff,var(--acc));-webkit-background-clip:text;background-clip:text;color:transparent}
+  h2.big{font-weight:800;font-size:72px;line-height:1.05;letter-spacing:-.02em;margin-top:30px}
+  .sub{font-size:30px;line-height:1.4;color:var(--dim);margin-top:26px;max-width:820px}
+  /* receipt */
+  .receipt{background:var(--paper);color:var(--ink);font-family:"DejaVu Sans Mono",monospace;
+    padding:38px 40px 26px;position:relative;
+    box-shadow:0 40px 90px #000a, 0 8px 24px #0007}
+  .receipt .r-top,.receipt .r-bot{position:absolute;left:0;right:0;height:14px;
+    background:linear-gradient(-45deg,var(--paper) 9px,transparent 0),linear-gradient(45deg,var(--paper) 9px,transparent 0);
+    background-size:18px 18px;background-repeat:repeat-x}
+  .receipt .r-top{top:-13px;transform:scaleY(-1)}
+  .receipt .r-bot{bottom:-13px}
+  .receipt .rh{text-align:center;border-bottom:2px dashed #b9b2c9;padding-bottom:18px;margin-bottom:18px}
+  .receipt .rh b{font-size:30px;letter-spacing:.14em}
+  .receipt .rh span{display:block;font-size:18px;color:#6f6890;margin-top:6px}
+  .receipt table{width:100%;border-collapse:collapse;font-size:21px}
+  .receipt td{padding:7px 0}
+  .receipt td:last-child{text-align:right}
+  .receipt .tot{border-top:2px dashed #b9b2c9;margin-top:14px;padding-top:14px;font-weight:700;font-size:26px}
+  .stamp{display:inline-block;border:3px solid var(--bad);color:var(--bad);font-weight:700;
+    font-size:19px;letter-spacing:.12em;padding:8px 14px;border-radius:8px;transform:rotate(-4deg)}
+  .stamp.ok{border-color:#1f9d55;color:#1f9d55}
+  /* feature rows */
+  .rows{margin-top:52px;display:flex;flex-direction:column;gap:0}
+  .row{display:flex;gap:28px;align-items:flex-start;padding:30px 0;border-top:1px solid var(--line)}
+  .row:last-child{border-bottom:1px solid var(--line)}
+  .row .tag{font-family:"DejaVu Sans Mono",monospace;font-size:20px;letter-spacing:.14em;color:var(--acc);
+    min-width:210px;padding-top:6px}
+  .row b{display:block;font-size:34px;font-weight:800;letter-spacing:-.01em}
+  .row p{font-size:24px;color:var(--dim);margin-top:8px;line-height:1.45}
+  /* browser frame */
+  .frame{margin-top:46px;border-radius:18px;overflow:hidden;border:1px solid var(--line);
+    box-shadow:0 44px 100px #000c;background:var(--panel)}
+  .frame .bar{height:52px;background:#1a1440;display:flex;align-items:center;gap:9px;padding:0 20px}
+  .frame .bar i{width:13px;height:13px;border-radius:50%;background:#3d3375;display:block}
+  .frame .bar i:first-child{background:#f1616b}.frame .bar i:nth-child(2){background:#e0a53f}
+  .frame .bar i:nth-child(3){background:#34c47c}
+  .frame .bar .url{margin-left:14px;font-family:"DejaVu Sans Mono",monospace;font-size:17px;color:var(--dim);
+    background:#120c2a;border-radius:8px;padding:6px 16px}
+  .frame img{display:block;width:100%}
+  .chips{display:flex;gap:16px;margin-top:36px;flex-wrap:wrap}
+  .chip{font-family:"DejaVu Sans Mono",monospace;font-size:20px;color:var(--text);
+    border:1px solid var(--line);background:#ffffff0a;border-radius:999px;padding:12px 22px}
+  .chip b{color:var(--acc);font-weight:700}
+  /* sync diagram */
+  .sync{margin-top:120px;display:flex;align-items:center;gap:0;justify-content:space-between}
+  .node{width:250px;text-align:center}
+  .node .icon{width:190px;height:140px;margin:0 auto;border-radius:16px;background:var(--panel);
+    border:1px solid var(--line);display:grid;place-items:center;box-shadow:0 18px 44px #0008}
+  .node .icon svg{width:84px;height:84px;fill:none;stroke:var(--acc);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+  .node b{display:block;font-size:26px;margin-top:20px}
+  .node span{display:block;font-family:"DejaVu Sans Mono",monospace;font-size:17px;color:var(--dim);margin-top:8px;line-height:1.5}
+  .link{flex:1;height:3px;background:repeating-linear-gradient(90deg,var(--acc) 0 14px,transparent 14px 26px);position:relative;top:-46px}
+  .link em{position:absolute;top:-34px;left:50%;transform:translateX(-50%);font-style:normal;
+    font-family:"DejaVu Sans Mono",monospace;font-size:16px;color:var(--acc);background:var(--bg);padding:4px 12px;white-space:nowrap}
+  /* big receipt slide */
+  .bigrcpt{position:absolute;left:84px;right:84px;top:110px;bottom:120px;display:flex;justify-content:center}
+  .bigrcpt .receipt{width:760px;padding:56px 64px 40px}
+  .barcode{height:76px;margin-top:30px;
+    background:repeating-linear-gradient(90deg,var(--ink) 0 3px,transparent 3px 6px,var(--ink) 6px 7px,transparent 7px 13px,var(--ink) 13px 17px,transparent 17px 20px)}
+</style>
+
+<!-- ============ S1 — hook ============ -->
+<section class="slide" id="s1">
+  <div class="pad">
+    <div class="kicker">Nova POS · field notes</div>
+    <div class="brand"><span class="lg"><svg viewBox="0 0 24 24"><path d="M3 4h3l2.4 12.2A2 2 0 0 0 10.4 18h7.8a2 2 0 0 0 2-1.6L22 8H6"/><circle cx="11" cy="21" r="1.4"/><circle cx="18" cy="21" r="1.4"/></svg></span>Nova POS</div>
+    <h1 style="font-size:88px">The internet went down at&nbsp;6pm.<br><span class="a">The till didn't notice.</span></h1>
+    <p class="sub">A point of sale that runs on your own hardware — so the evening rush never waits on a router.</p>
+    <div class="receipt" style="width:500px;margin-top:48px;transform:rotate(-2deg);padding:30px 36px 22px;font-size:19px">
+      <div class="r-top"></div><div class="r-bot"></div>
+      <div class="rh"><b>NOVA MART</b><span>RECEIPT · INV MOB-000013</span></div>
+      <table style="font-size:18px">
+        <tr><td style="padding:5px 0">Cola 330ml ×2</td><td>300.00</td></tr>
+        <tr><td>Whole Milk 1L</td><td>160.00</td></tr>
+        <tr><td>Chips 150g ×4</td><td>720.00</td></tr>
+        <tr><td style="color:#8a82a8">bulk deal −10%</td><td style="color:#8a82a8">−72.00</td></tr>
+        <tr><td style="color:#8a82a8">incl. VAT 16%</td><td style="color:#8a82a8">152.83</td></tr>
+        <tr class="tot"><td>TOTAL</td><td>KSh 1,108.00</td></tr>
+        <tr><td>CASH</td><td>1,200.00</td></tr>
+        <tr><td>CHANGE</td><td>92.00</td></tr>
+      </table>
+      <div style="margin-top:22px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:17px;color:#6f6890">18:04 · offline</span>
+        <span class="stamp ok">SYNCED 18:41</span>
+      </div>
+    </div>
+    <div class="foot"><span>the local-first till →</span><span class="swipe">01 / 07 →</span></div>
+  </div>
+</section>
+
+<!-- ============ S2 — what it is ============ -->
+<section class="slide" id="s2">
+  <div class="pad">
+    <div class="kicker">the idea</div>
+    <div class="brand"><span class="lg"><svg viewBox="0 0 24 24"><path d="M3 4h3l2.4 12.2A2 2 0 0 0 10.4 18h7.8a2 2 0 0 0 2-1.6L22 8H6"/><circle cx="11" cy="21" r="1.4"/><circle cx="18" cy="21" r="1.4"/></svg></span>Nova POS</div>
+    <h2 class="big">Your till shouldn't live in <span class="a" style="background:linear-gradient(120deg,#b79cff,var(--acc));-webkit-background-clip:text;background-clip:text;color:transparent">someone else's cloud.</span></h2>
+    <div class="rows">
+      <div class="row"><span class="tag">LOCAL-FIRST</span><div><b>Everything lives on your machine</b><p>One database file in your shop — sales, stock, users. Back it up by copying a file.</p></div></div>
+      <div class="row"><span class="tag">OFFLINE-OK</span><div><b>Full checkout, zero bars</b><p>Scan, charge, print the receipt — the whole flow works with no internet at all.</p></div></div>
+      <div class="row"><span class="tag">YOUR HARDWARE</span><div><b>Runs on the laptop you already own</b><p>One command, one store. No terminals to lease, no data leaving the building.</p></div></div>
+      <div class="row"><span class="tag">YOUR RULES</span><div><b>Cashiers get the till. You get the keys.</b><p>Admin and cashier roles, admin-approved voids and password resets, an audit log on everything.</p></div></div>
+    </div>
+    <div class="foot"><span>point of sale + inventory</span><span class="swipe">02 / 07 →</span></div>
+  </div>
+</section>
+
+<!-- ============ S3 — the till ============ -->
+<section class="slide" id="s3">
+  <div class="pad">
+    <div class="kicker">the till</div>
+    <div class="brand"><span class="lg"><svg viewBox="0 0 24 24"><path d="M3 4h3l2.4 12.2A2 2 0 0 0 10.4 18h7.8a2 2 0 0 0 2-1.6L22 8H6"/><circle cx="11" cy="21" r="1.4"/><circle cx="18" cy="21" r="1.4"/></svg></span>Nova POS</div>
+    <h2 class="big">Scan. Tap. <span class="a" style="background:linear-gradient(120deg,#b79cff,var(--acc));-webkit-background-clip:text;background-clip:text;color:transparent">Done.</span></h2>
+    <div class="frame">
+      <div class="bar"><i></i><i></i><i></i><span class="url">127.0.0.1:5050 — this till is a local app</span></div>
+      <img src="shots/tall_pos.png" alt="Nova POS till: product grid with prices in KSh, current sale panel with Park, Held and Charge buttons">
+    </div>
+    <div class="chips">
+      <span class="chip">barcode + name search</span>
+      <span class="chip">VAT split on every receipt</span>
+      <span class="chip">change math built in</span>
+    </div>
+    <div class="foot"><span>the real interface — not a mockup</span><span class="swipe">03 / 07 →</span></div>
+  </div>
+</section>
+
+<!-- ============ S4 — inventory ============ -->
+<section class="slide" id="s4">
+  <div class="pad">
+    <div class="kicker">the back office</div>
+    <div class="brand"><span class="lg"><svg viewBox="0 0 24 24"><path d="M3 4h3l2.4 12.2A2 2 0 0 0 10.4 18h7.8a2 2 0 0 0 2-1.6L22 8H6"/><circle cx="11" cy="21" r="1.4"/><circle cx="18" cy="21" r="1.4"/></svg></span>Nova POS</div>
+    <h2 class="big">It watches the shelves <span class="a" style="background:linear-gradient(120deg,#b79cff,var(--acc));-webkit-background-clip:text;background-clip:text;color:transparent">so you don't have to.</span></h2>
+    <div class="frame">
+      <div class="bar"><i></i><i></i><i></i><span class="url">dashboard — this morning, before you opened</span></div>
+      <img src="shots/tall_dash.png" alt="Nova POS dashboard: today's revenue, stock value, low-stock count, top sellers, expiring-soon and recent orders">
+    </div>
+    <div class="chips">
+      <span class="chip"><b>3</b> items low — flagged before they're out</span>
+      <span class="chip">milk expiring in 10 days</span>
+      <span class="chip">top sellers ranked</span>
+    </div>
+    <div class="foot"><span>stock value counted at cost</span><span class="swipe">04 / 07 →</span></div>
+  </div>
+</section>
+
+<!-- ============ S5 — small saves ============ -->
+<section class="slide" id="s5">
+  <div class="pad">
+    <div class="kicker">the details</div>
+    <div class="brand"><span class="lg"><svg viewBox="0 0 24 24"><path d="M3 4h3l2.4 12.2A2 2 0 0 0 10.4 18h7.8a2 2 0 0 0 2-1.6L22 8H6"/><circle cx="11" cy="21" r="1.4"/><circle cx="18" cy="21" r="1.4"/></svg></span>Nova POS</div>
+    <h2 class="big">Built for the rush,<br>not the demo.</h2>
+    <div class="receipt" style="width:820px;margin-top:56px">
+      <div class="r-top"></div><div class="r-bot"></div>
+      <table style="font-size:25px">
+        <tr><td style="padding:16px 0"><b>PARK A SALE</b><br><span style="font-size:19px;color:#6f6890">customer forgot their wallet? hold it, serve the queue, resume later</span></td><td>HELD&nbsp;1</td></tr>
+        <tr><td style="padding:16px 0;border-top:2px dashed #b9b2c9"><b>BULK DEALS</b><br><span style="font-size:19px;color:#6f6890">"buy 4+, save 10%" — applies itself at the till</span></td><td>AUTO</td></tr>
+        <tr><td style="padding:16px 0;border-top:2px dashed #b9b2c9"><b>CASHIER-PROOF</b><br><span style="font-size:19px;color:#6f6890">voids need an admin — stock is restored, audit logged</span></td><td>ADMIN</td></tr>
+        <tr><td style="padding:16px 0;border-top:2px dashed #b9b2c9"><b>CSV IMPORT</b><br><span style="font-size:19px;color:#6f6890">the whole price list from Excel — barcodes update in place</span></td><td>MIN</td></tr>
+        <tr><td style="padding:16px 0;border-top:2px dashed #b9b2c9"><b>TWO ROLES</b><br><span style="font-size:19px;color:#6f6890">cashier sees the till — admin sees products, stock, voids, users</span></td><td>RBAC</td></tr>
+      </table>
+    </div>
+    <div class="foot"><span>forgot-password resets approved by admin too</span><span class="swipe">05 / 07 →</span></div>
+  </div>
+</section>
+
+<!-- ============ S6 — sync ============ -->
+<section class="slide" id="s6">
+  <div class="pad">
+    <div class="kicker">multi-device</div>
+    <div class="brand"><span class="lg"><svg viewBox="0 0 24 24"><path d="M3 4h3l2.4 12.2A2 2 0 0 0 10.4 18h7.8a2 2 0 0 0 2-1.6L22 8H6"/><circle cx="11" cy="21" r="1.4"/><circle cx="18" cy="21" r="1.4"/></svg></span>Nova POS</div>
+    <h2 class="big">Sell on the counter.<br><span class="a" style="background:linear-gradient(120deg,#b79cff,var(--acc));-webkit-background-clip:text;background-clip:text;color:transparent">Check stock from your phone.</span></h2>
+    <p class="sub">Every device keeps its own copy and streams events to the hub — deduplicated, ordered, conflict-tracked. It catches up whenever the connection does.</p>
+    <div class="sync">
+      <div class="node">
+        <div class="icon"><svg viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
+        <b>The till</b><span>laptop at the counter<br>sells offline all day</span>
+      </div>
+      <div class="link"><em>SALE_CREATED</em></div>
+      <div class="node">
+        <div class="icon"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg></div>
+        <b>The hub</b><span>one database, one truth<br>event log, deduped</span>
+      </div>
+      <div class="link"><em>pull · ack</em></div>
+      <div class="node">
+        <div class="icon"><svg viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 19h3"/></svg></div>
+        <b>Your phone</b><span>stock, sales, sync status<br>from the stockroom</span>
+      </div>
+    </div>
+    <div class="chips" style="justify-content:center;margin-top:110px">
+      <span class="chip">pair a device in one QR-token step</span>
+      <span class="chip">revoke it just as fast</span>
+    </div>
+    <div class="foot"><span>android companion app included</span><span class="swipe">06 / 07 →</span></div>
+  </div>
+</section>
+
+<!-- ============ S7 — CTA receipt ============ -->
+<section class="slide" id="s7">
+  <div class="pad" style="padding:0">
+    <div class="bigrcpt"><div class="receipt" style="align-self:center">
+      <div class="r-top"></div><div class="r-bot"></div>
+      <div class="rh"><b style="font-size:44px">NOVA POS</b><span style="font-size:20px">point of sale · inventory · sync<br>your shop · your machine · your data</span></div>
+      <table style="font-size:24px">
+        <tr><td>Scan &amp; sell, offline</td><td>✓</td></tr>
+        <tr><td>Receipts w/ VAT split</td><td>✓</td></tr>
+        <tr><td>Stock + expiry alerts</td><td>✓</td></tr>
+        <tr><td>Park sales, bulk deals</td><td>✓</td></tr>
+        <tr><td>Phone companion app</td><td>✓</td></tr>
+        <tr class="tot"><td>SETUP TIME</td><td>~10 min</td></tr>
+      </table>
+      <div style="text-align:center;margin-top:34px">
+        <span style="font-size:22px">Book a demo — link in bio</span>
+        <div class="barcode"></div>
+        <span style="font-size:16px;color:#6f6890">thank you · come again · follow for build notes</span>
+      </div>
+    </div></div>
+    <div class="foot" style="bottom:52px"><span>nova pos · local-first</span><span class="swipe">07 / 07</span></div>
+  </div>
+</section>
+
+<script>
+  const s = new URLSearchParams(location.search).get('s');
+  document.getElementById('s' + (s || '1')).classList.add('on');
+</script>
