@@ -55,6 +55,12 @@ jobs:
           name: shujaa-pos-${{ matrix.os }}
           path: dist/
 
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+
   android:
     runs-on: ubuntu-latest
     defaults:
@@ -89,3 +95,9 @@ jobs:
         with:
           name: shujaa-pos-android
           path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Attach APK to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: mobile/android/app/build/outputs/apk/debug/app-debug.apk

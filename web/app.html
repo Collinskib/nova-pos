@@ -113,7 +113,7 @@ async function boot() {
     <div class="nav" id="nav"></div><div id="c"></div></div>`;
   show("dash");
 }
-const TABS = {dash: "Dashboard", sales: "Sales", products: "Products", branches: "Branches"};
+const TABS = {dash: "Dashboard", pos: "POS", sales: "Sales", products: "Products", branches: "Branches"};
 function show(p) {
   page = p;
   document.getElementById("nav").innerHTML =
@@ -142,7 +142,11 @@ async function dash() {
     ${(d || []).map(x => `<div class="row" style="margin:8px 0"><b>${esc(x.device_name)}</b>
       <span class="badge ${x.active ? '' : 'bad'}">${x.active ? 'active' : 'revoked'}</span>
       <span class="mut" style="margin-left:auto;font-size:12px">${x.last_seen_at ? 'seen ' + new Date(x.last_seen_at).toLocaleString() : 'never seen'}</span></div>`).join("")
-      || '<p class="mut">No devices yet — pair a till from the hub or mobile app.</p>'}</div>`;
+      || '<p class="mut">No devices yet — pair a till from the hub or mobile app.</p>'}</div>
+    <div class="panel"><h3 style="margin-top:0">Get the apps</h3>
+    <p class="mut" style="font-size:14px;margin-top:0">This web till works anywhere with internet. For offline selling install the app:</p>
+    <div class="row" style="gap:10px"><a href="https://github.com/Collinskib/nova-pos/releases/latest" style="background:var(--acc);color:#fff;padding:10px 16px;border-radius:9px;text-decoration:none;font-weight:700;font-size:13px">Desktop (Win / Mac / Linux)</a>
+    <a href="https://github.com/Collinskib/nova-pos/releases/latest" style="background:var(--acc);color:#fff;padding:10px 16px;border-radius:9px;text-decoration:none;font-weight:700;font-size:13px">Android APK</a></div></div>`;
 }
 async function sales() {
   const c = document.getElementById("c");
@@ -183,6 +187,51 @@ async function branches() {
       <input id="nba" placeholder="Address (optional)" style="flex:2">
       <button onclick="addBranch()" style="margin:0">Add</button></div><div id="msg"></div>` : ""}</div>`;
 }
+
+let cart = {}, _prods = [];
+async function pos() {
+  const c = document.getElementById("c");
+  c.innerHTML = `<div class="panel">Loading…</div>`;
+  const t = await tok();
+  const prods = await (await fetch(CONF.api + "/api/web/products", {headers: {Authorization: "Bearer " + t}})).json();
+  if (prods.error) { c.innerHTML = `<div class="panel">${esc(prods.error)}</div>`; return; }
+  _prods = prods;
+  c.innerHTML = `<div class="poswrap"><div class="pgrid">
+    ${prods.map((p, i) => `<div class="tile" onclick="addCart(${i})"><b>${esc(p.name)}</b><span>${ksh(p.selling_price)} · ${p.stock} left</span></div>`).join("")
+      || '<p class="mut">No products yet — add them on the hub; they sync here.</p>'}</div>
+    <div class="panel" style="width:290px;flex-shrink:0"><h3 style="margin-top:0">Cart</h3><div id="cart"></div>
+    <div class="row" style="margin-top:12px"><b id="ct">KSh 0.00</b>
+    <button onclick="pay()" style="margin:0;margin-left:auto">Charge</button></div><div id="msg"></div></div></div>`;
+  renderCart();
+}
+function addCart(i) {
+  const p = _prods[i];
+  cart[p.id] = {p, qty: (cart[p.id]?.qty || 0) + 1};
+  renderCart();
+}
+function decCart(id) { if (--cart[id].qty <= 0) delete cart[id]; renderCart(); }
+function renderCart() {
+  const rows = Object.values(cart);
+  document.getElementById("cart").innerHTML = rows.map(x => `<div class="row" style="margin:6px 0">
+    <span>${esc(x.p.name)} <span class="mut">×${x.qty}</span></span>
+    <span style="margin-left:auto">${ksh(x.qty * x.p.selling_price)}</span>
+    <a href="#" onclick="decCart('${x.p.id}');return false" class="mut" style="margin-left:8px;text-decoration:none">−</a></div>`).join("")
+    || '<p class="mut" style="font-size:14px">Tap products to add.</p>';
+  document.getElementById("ct").textContent = ksh(rows.reduce((a, x) => a + x.qty * x.p.selling_price, 0));
+}
+async function pay() {
+  const rows = Object.values(cart);
+  if (!rows.length) return;
+  const method = prompt("Payment method: cash / mpesa / card / credit", "cash") || "cash";
+  const total = rows.reduce((a, x) => a + x.qty * x.p.selling_price, 0);
+  const r = await api("/api/web/sale", {items: rows.map(x => ({product_id: x.p.id, qty: x.qty, unit_price: x.p.selling_price})),
+    payments: [{method, amount: total}]});
+  if (r.error) return say(esc(r.error), "err");
+  cart = {};
+  say(`Done — receipt ${esc(r.receipt)} · ${ksh(r.total)}`, "okm");
+  pos();
+}
+
 async function addBranch() {
   const r = await api("/api/branches", {business_id: biz.id, name: nbn.value, address: nba.value});
   if (r.error) return say(esc(r.error), "err");

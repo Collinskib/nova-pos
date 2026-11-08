@@ -6,7 +6,8 @@ POST /api/v1/sync/ack, GET /api/v1/sync/status. Hub authenticates with
 X-Hub-Key; Supabase is reached via PostgREST with the service key — which
 never leaves this process (§4.3).
 """
-import os, json, urllib.request, urllib.error, uuid
+import os, json, urllib.request, urllib.error, uuid, time
+import uuid, time
 from datetime import datetime, timezone
 from flask import Flask, request, jsonify
 from functools import wraps
@@ -270,6 +271,58 @@ def status():
     evs = pg("GET", "sync_events", params="?select=server_sequence&order=server_sequence.desc&limit=1") or []
     return jsonify({"latest_sequence": evs[0]["server_sequence"] if evs else 0,
                     "open_conflicts": len(pg("GET", "sync_conflicts", params="?resolved=eq.false&select=id") or [])})
+
+def _biz_ctx(uid):
+    ms = pg("GET","business_memberships",params=f"?user_id=eq.{uid}&select=business_id&limit=1") or []
+    if not ms: return None
+    bid = ms[0]["business_id"]
+    br = pg("GET","branches",params=f"?business_id=eq.{bid}&select=id&limit=1") or []
+    return bid, br[0]["id"]
+
+def _web_device(bid, brid):
+    dev = pg("GET","devices",params=f"?business_id=eq.{bid}&branch_id=eq.{brid}&device_name=eq.Web%20till&select=id&limit=1") or []
+    if dev: return dev[0]["id"]
+    return pg("POST","devices",{"business_id":bid,"branch_id":brid,"device_name":"Web till","device_type":"web"})[0]["id"]
+
+@app.get("/api/web/products")
+def web_products():
+    u = authed_user()
+    ctx = _biz_ctx(u["id"])
+    if not ctx: return jsonify({"error":"no store"}), 400
+    bid, brid = ctx
+    prods = pg("GET","products",params=f"?business_id=eq.{bid}&active=eq.true&order=name") or []
+    bals = pg("GET","stock_balances",params=f"?business_id=eq.{bid}&branch_id=eq.{brid}&select=product_id,on_hand") or []
+    qty = {b["product_id"]: float(b["on_hand"]) for b in bals}
+    for p in prods: p["stock"] = qty.get(p["id"], 0)
+    return jsonify(prods)
+
+@app.post("/api/web/sale")
+def web_sale():
+    u = authed_user()
+    ctx = _biz_ctx(u["id"])
+    if not ctx: return jsonify({"error":"no store"}), 400
+    bid, brid = ctx
+    d = request.get_json(force=True)
+    items, pays = d.get("items") or [], d.get("payments") or []
+    if not items: return jsonify({"error":"empty sale"}), 400
+    disc = float(d.get("discount") or 0)
+    sub = sum(float(i["unit_price"])*float(i["qty"]) for i in items)
+    total = max(0.0, round(sub - disc, 2))
+    tax = round(total*16/116, 2)
+    now = datetime.now(timezone.utc).isoformat()
+    sid, receipt = str(uuid.uuid4()), "WEB-" + str(int(time.time()))
+    pg("POST","sales",{"id":sid,"business_id":bid,"branch_id":brid,"device_id":_web_device(bid,brid),
+       "receipt_number":receipt,"subtotal":round(sub,2),"discount_total":disc,"tax_total":tax,
+       "total":total,"status":"completed","created_at":now})
+    pg("POST","sale_items",[{"sale_id":sid,"business_id":bid,"product_id":i["product_id"],
+       "quantity":i["qty"],"unit_price":i["unit_price"],"line_total":round(float(i["unit_price"])*float(i["qty"]),2)} for i in items])
+    if pays:
+        pg("POST","payments",[{"sale_id":sid,"business_id":bid,"method":p["method"],"amount":p["amount"],"created_at":now} for p in pays])
+    for i in items:
+        bal = pg("GET","stock_balances",params=f"?business_id=eq.{bid}&branch_id=eq.{brid}&product_id=eq.{i['product_id']}&select=id,on_hand&limit=1") or []
+        if bal: pg("PATCH","stock_balances",{"on_hand": float(bal[0]["on_hand"])-float(i["qty"])},params=f"?id=eq.{bal[0]['id']}")
+        else: pg("POST","stock_balances",{"business_id":bid,"branch_id":brid,"product_id":i["product_id"],"on_hand":-float(i["qty"])})
+    return jsonify({"ok":True,"receipt":receipt,"total":total})
 
 @app.get("/")
 def web_index():
