@@ -1,4 +1,13 @@
 {
   "cleanUrls": true,
-  "trailingSlash": false
+  "trailingSlash": false,
+  "redirects": [
+    { "source": "/what-is-a-pos-system", "destination": "/blog/what-is-a-pos-system" },
+    { "source": "/pos-loses-internet", "destination": "/blog/pos-loses-internet" },
+    { "source": "/offline-pos-explained", "destination": "/blog/offline-pos-explained" },
+    { "source": "/cloud-vs-offline-pos", "destination": "/blog/cloud-vs-offline-pos" },
+    { "source": "/manage-stock-retail-shop-kenya", "destination": "/blog/manage-stock-retail-shop-kenya" },
+    { "source": "/cash-control-till-reconciliation", "destination": "/blog/cash-control-till-reconciliation" },
+    { "source": "/split-payments-mpesa-card", "destination": "/blog/split-payments-mpesa-card" }
+  ]
 }
