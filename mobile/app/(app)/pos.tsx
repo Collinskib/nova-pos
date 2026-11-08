@@ -35,6 +35,8 @@ export default function Pos() {
   const eff = () => Math.max(0, total - discC());
   const [plist, setPlist] = useState<"retail" | "wholesale">("retail");
   const pp = (p: any) => plist === "wholesale" && p.price_wholesale_cents ? p.price_wholesale_cents : p.price_cents;
+  const [vkids, setVkids] = useState<any[] | null>(null);
+  const kids = (p: any) => prods.filter(x => x.parent_id != null && String(x.parent_id) === String(p.id));
   const [cust, setCust] = useState<string | null>(null);
   const [custs, setCusts] = useState<any[]>([]);
   const [newC, setNewC] = useState("");
@@ -98,10 +100,11 @@ export default function Pos() {
           <TouchableOpacity style={s.cam} onPress={openScan}><Text style={{ fontSize: 18 }}>📷</Text></TouchableOpacity>
         </View>
       </View>
-      <FlatList data={prods} keyExtractor={p => p.id} numColumns={2} contentContainerStyle={{ padding: 8 }}
+      <FlatList data={prods.filter(p => !p.parent_id)} keyExtractor={p => p.id} numColumns={2} contentContainerStyle={{ padding: 8 }}
         refreshing={refreshing} onRefresh={pullRefresh}
         renderItem={({ item: p }) => (
-          <TouchableOpacity style={s.tile} onPress={() => addToCart({ ...p, price_cents: pp(p) })} disabled={p.stock <= 0}>
+          <TouchableOpacity style={s.tile} disabled={p.stock <= 0}
+            onPress={() => { const k = kids(p); k.length ? setVkids(k) : addToCart({ ...p, price_cents: pp(p) }); }}>
             {p.image
               ? <Image source={{ uri: p.image }} style={s.img} resizeMode="cover" />
               : <View style={[s.img, s.imgPh]}><Text style={s.imgPhT}>{p.name.slice(0, 2).toUpperCase()}</Text></View>}
@@ -136,6 +139,19 @@ export default function Pos() {
           <TouchableOpacity style={{ position: "absolute", bottom: 50, alignSelf: "center", padding: 14 }}
             onPress={() => setScanning(false)}><Text style={{ color: "#fff", fontWeight: "700" }}>Cancel</Text></TouchableOpacity>
         </View>
+      </Modal>
+      <Modal visible={!!vkids} transparent animationType="fade">
+        <View style={s.mo}><View style={s.ms}>
+          <Text style={s.msH}>Choose variant</Text>
+          {vkids?.map(v => (
+            <TouchableOpacity key={v.id} disabled={v.stock <= 0}
+              style={[s.pchip, { marginBottom: 6, flexDirection: "row", justifyContent: "space-between" }]}
+              onPress={() => { addToCart({ ...v, price_cents: pp(v), name: v.variant_label ? `${v.name} · ${v.variant_label}` : v.name }); setVkids(null); }}>
+              <Text style={s.pchipT}>{v.variant_label || v.name}</Text>
+              <Text style={s.pchipT}>{fmt(pp(v))}{v.stock <= 0 ? " · out" : ` · ${v.stock}`}</Text>
+            </TouchableOpacity>))}
+          <TouchableOpacity onPress={() => setVkids(null)}><Text style={s.cancel}>Cancel</Text></TouchableOpacity>
+        </View></View>
       </Modal>
       <Modal visible={sheet} transparent animationType="slide">
         <View style={s.mo}><View style={s.ms}>

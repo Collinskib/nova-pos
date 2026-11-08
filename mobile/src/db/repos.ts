@@ -8,7 +8,7 @@ const uuid = () => "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => 
 
 export type Product = { id: string; barcode: string; name: string; price_cents: number;
   stock: number; taxable: number; discount_qty: number | null; discount_pct: number | null; image: string | null;
-  price_wholesale_cents?: number | null };
+  price_wholesale_cents?: number | null; parent_id?: number | string | null; variant_label?: string | null };
 export type CartItem = Product & { qty: number };
 export type Sale = { id: string; receipt_no: string; total_cents: number; status: string; created_at: string;
                      paid_cents?: number | null; pay_method?: string | null };
@@ -42,13 +42,15 @@ export const searchProducts = (q: string, limit = 60) =>
 export const seedProducts = (ctx: any, items: any[], base = "") =>
   tx(d => Promise.all(items.map(p => {
     const img = p.image ? (/^https?:/.test(p.image) ? p.image : base + p.image) : null;
-    return run(d, "ALTER TABLE products ADD COLUMN price_wholesale_cents REAL").catch(() => {}).then(() =>
-      run(d,
-    `INSERT OR REPLACE INTO products(id,business_id,barcode,name,price_cents,price_wholesale_cents,cost_cents,stock,taxable,discount_qty,discount_pct,image,updated_at)
-     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    return run(d, "ALTER TABLE products ADD COLUMN price_wholesale_cents REAL").catch(() => {})
+    .then(() => run(d, "ALTER TABLE products ADD COLUMN parent_id TEXT").catch(() => {}))
+    .then(() => run(d, "ALTER TABLE products ADD COLUMN variant_label TEXT").catch(() => {}))
+    .then(() => run(d,
+    `INSERT OR REPLACE INTO products(id,business_id,barcode,name,price_cents,price_wholesale_cents,cost_cents,stock,taxable,discount_qty,discount_pct,image,parent_id,variant_label,updated_at)
+     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [p.uuid || String(p.id) || uuid(), ctx.business, p.barcode, p.name, money(p.price),
      p.price_wholesale != null ? money(p.price_wholesale) : null, money(p.cost || 0),
-     p.stock, p.taxable ?? 1, p.discount_qty, p.discount_pct, img, now()]));
+     p.stock, p.taxable ?? 1, p.discount_qty, p.discount_pct, img, p.parent_id ?? null, p.variant_label ?? null, now()]));
   })));
 
 // ---------- receipt counter: device-scoped range (§7.3) ----------
