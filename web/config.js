@@ -2,6 +2,6 @@
 // Supabase Dashboard → Settings → API → "anon public" key.
 const CONF = {
   url: "https://bpwbwvaimwofjkxjestv.supabase.co",
-  anon: "PASTE_ANON_KEY_HERE",
+  anon: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJwd2J3dmFpbXdvZmpreGplc3R2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM5NTM1NTYsImV4cCI6MjEwOTUyOTU1Nn0.q1p1hpCQQ9HTQAP1325fjuZ83LSu-nkuBkS5tPoUXpQ",
   api: "http://localhost:5060",   // cloud_api.py — swap for the deployed URL later
 };
