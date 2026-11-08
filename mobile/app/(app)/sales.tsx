@@ -20,8 +20,12 @@ export default function Sales() {
               <Text style={s.ln}>{r.receipt_no}</Text>
               <Text style={s.ls}>{new Date(r.created_at).toLocaleString()}</Text>
             </View>
-            <Text style={[s.lt, r.status === "void" && { color: "#e05a5a" }]}>
-              {r.status === "void" ? "void" : fmt(r.total_cents)}</Text>
+            <View style={{ alignItems: "flex-end" }}>
+              <Text style={[s.lt, r.status === "void" && { color: "#e05a5a" }]}>
+                {r.status === "void" ? "void" : fmt(r.total_cents)}</Text>
+              {r.paid_cents != null && r.status !== "void" &&
+                <Text style={s.ls}>Paid {fmt(r.paid_cents)} · Change {fmt(Math.max(0, r.paid_cents - r.total_cents))}</Text>}
+            </View>
           </View>)}
         ListEmptyComponent={<Text style={s.sub}>No sales recorded on this device.</Text>} />
     </View>

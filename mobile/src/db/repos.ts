@@ -9,7 +9,8 @@ const uuid = () => "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => 
 export type Product = { id: string; barcode: string; name: string; price_cents: number;
   stock: number; taxable: number; discount_qty: number | null; discount_pct: number | null; image: string | null };
 export type CartItem = Product & { qty: number };
-export type Sale = { id: string; receipt_no: string; total_cents: number; status: string; created_at: string };
+export type Sale = { id: string; receipt_no: string; total_cents: number; status: string; created_at: string;
+                     paid_cents?: number | null; pay_method?: string | null };
 
 const now = () => new Date().toISOString();
 const money = (n: number) => Math.round(n * 100); // float → minor units (§4.4)
@@ -98,7 +99,8 @@ export async function checkout(ctx: any, items: CartItem[], payment: { method: s
 
 // ---------- history / dashboard ----------
 export const recentSales = (limit = 50) =>
-  read<Sale>("SELECT * FROM sales ORDER BY created_at DESC LIMIT ?", [limit]);
+  read<Sale>(`SELECT s.*, p.amount_cents paid_cents, p.method pay_method FROM sales s
+    LEFT JOIN payments p ON p.sale_id=s.id ORDER BY s.created_at DESC LIMIT ?`, [limit]);
 export const todayTotals = async () => ({
   count: ((await read<{ n: number }>("SELECT COUNT(*) n FROM sales WHERE date(created_at)=date('now') AND status='completed'"))[0])!.n,
   total: ((await read<{ t: number | null }>("SELECT SUM(total_cents) t FROM sales WHERE date(created_at)=date('now') AND status='completed'"))[0])!.t ?? 0,
