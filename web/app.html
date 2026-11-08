@@ -220,7 +220,8 @@ async function branches() {
   c.innerHTML = `<div class="panel"><h3 style="margin-top:0">Branches</h3><table>
     <tr><th>Name</th><th>Address</th><th class="right">Status</th></tr>
     ${(b || []).map(x => `<tr><td><b>${esc(x.name)}</b></td><td class="mut">${esc(x.address || "—")}</td>
-      <td class="right"><span class="badge">${esc(x.status)}</span></td></tr>`).join("")}</table>
+      <td class="right"><span class="badge ${x.status!=="active"?"bad":""}">${esc(x.status)}</span>
+      ${role === "admin" && x.status === "active" ? `<a href="#" onclick="delBranch('${x.id}','${esc(x.name)}');return false" class="mut" style="margin-left:8px">deactivate</a>` : ""}</td></tr>`).join("")}</table>
     ${role === "admin" ? `<h4 style="margin:18px 0 4px">Add a branch</h4>
     <div class="row" style="margin-top:8px"><input id="nbn" placeholder="Branch name" style="flex:2">
       <input id="nba" placeholder="Address (optional)" style="flex:2">
@@ -299,6 +300,12 @@ async function adjStock(id, name) {
   const r = await api("/api/web/stock", {product_id: id, delta: +v, note: "web adjust"});
   if (r.error || !r.ok) return say(esc(r.error || "failed"), "err");
   say("Stock updated — syncs to your tills.", "okm");
+}
+async function delBranch(id, name) {
+  if (!confirm(`Deactivate ${name}? Sales history stays; the branch just stops taking new sales.`)) return;
+  const r = await api("/api/branches/delete", {business_id: biz.id, branch_id: id});
+  if (r.error || !r.ok) return alert(r.error || "failed");
+  branches();
 }
 async function addBranch() {
   const r = await api("/api/branches", {business_id: biz.id, name: nbn.value, address: nba.value});

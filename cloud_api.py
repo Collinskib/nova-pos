@@ -276,7 +276,7 @@ def _biz_ctx(uid):
     ms = pg("GET","business_memberships",params=f"?user_id=eq.{uid}&select=business_id&limit=1") or []
     if not ms: return None
     bid = ms[0]["business_id"]
-    br = pg("GET","branches",params=f"?business_id=eq.{bid}&select=id&limit=1") or []
+    br = pg("GET","branches",params=f"?business_id=eq.{bid}&status=eq.active&select=id&order=created_at&limit=1") or []
     return bid, br[0]["id"]
 
 def _web_device(bid, brid):
@@ -365,6 +365,22 @@ def web_stock():
          "movement_type": "STOCK_ADJUSTMENT", "quantity_delta": float(d.get("delta") or 0),
          "ref_no": d.get("note") or "web"})
     return jsonify({"ok": bool(eid)}) if eid else (jsonify({"error":"emit failed"}), 500)
+
+@app.post("/api/branches/delete")
+def delete_branch():
+    """Deactivate a branch (sales/devices FK it, so we never hard-delete)."""
+    u = authed_user()
+    if not u: return jsonify({"error": "unauthorized"}), 401
+    j = request.json or {}
+    bid, tid = j.get("business_id"), j.get("branch_id")
+    ms = pg("GET", "business_memberships",
+            params=f"?user_id=eq.{u['id']}&business_id=eq.{bid}&role=eq.admin&select=role&limit=1")
+    if not ms: return jsonify({"error": "admin only"}), 403
+    active = pg("GET", "branches", params=f"?business_id=eq.{bid}&status=eq.active&order=created_at&select=id") or []
+    if len(active) <= 1: return jsonify({"error": "cannot deactivate the only active branch"}), 400
+    if active and tid == active[0]["id"]: return jsonify({"error": "cannot deactivate the main branch"}), 400
+    pg("PATCH", "branches", {"status": "inactive"}, f"?id=eq.{tid}&business_id=eq.{bid}")
+    return jsonify({"ok": True})
 
 @app.get("/")
 def web_index():
