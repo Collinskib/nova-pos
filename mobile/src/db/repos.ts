@@ -92,7 +92,7 @@ export async function checkout(ctx: any, items: CartItem[], payment: { method: s
       [uuid(), id, payment.method, payCents, now()]);
     const event_id = await emit(d, ctx, "SALE_CREATED", id,
       { sale_id: id, receipt_no: receipt, total_cents: sub, tax_cents: tax, items: lines,
-        cashier_name: ctx.cashier_name || null });
+        paid_cents: payCents, payment_method: payment.method, cashier_name: ctx.cashier_name || null });
     return { id, receipt_no: receipt, total_cents: sub, event_id };
   });
 }
