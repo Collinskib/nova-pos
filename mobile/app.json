@@ -1,13 +1,21 @@
 {
   "expo": {
-    "name": "Nova POS",
-    "slug": "nova-pos-mobile",
+    "name": "Mauzo POS",
+    "slug": "mauzo-pos",
     "version": "0.1.0",
     "orientation": "portrait",
-    "scheme": "novapos",
+    "scheme": "mauzo-pos",
     "userInterfaceStyle": "automatic",
-    "plugins": ["expo-router", "expo-secure-store", "expo-sqlite"],
-    "android": { "package": "com.novapos.mobile" },
-    "ios": { "bundleIdentifier": "com.novapos.mobile" }
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-sqlite"
+    ],
+    "android": {
+      "package": "com.novapos.mobile"
+    },
+    "ios": {
+      "bundleIdentifier": "com.novapos.mobile"
+    }
   }
 }

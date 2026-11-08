@@ -39,7 +39,7 @@ for name, q in QUERIES.items():
     print(f"{name}: {'img ok' if img else 'NO IMG'} -> KSh {pr}")
     time.sleep(0.4)
 
-for k, v in {"store_name": "Nova Mart", "store_address": "Moi Avenue, Nairobi, Kenya",
+for k, v in {"store_name": "Mauzo Mart", "store_address": "Moi Avenue, Nairobi, Kenya",
              "store_phone": "+254 712 345 678", "tax_rate": "0", "currency": "KSh "}.items():
     c.execute("INSERT OR REPLACE INTO settings(k,v) VALUES(?,?)", (k, v))
 c.commit(); c.close(); print("done")

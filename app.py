@@ -153,12 +153,12 @@ def apply_migrations(c):
             if "duplicate column" not in str(e): raise
         if n == 1 and not c.execute("SELECT 1 FROM businesses WHERE id=1").fetchone():
             c.execute("INSERT INTO businesses(id,uuid,name,created_at) VALUES(?,?,?,?)",
-                      (1, str(uuid.uuid4()), "Nova Mart", datetime.now(timezone.utc).isoformat(timespec="seconds")))
+                      (1, str(uuid.uuid4()), "Mauzo Mart", datetime.now(timezone.utc).isoformat(timespec="seconds")))
             c.execute("INSERT INTO branches(id,uuid,business_id,name,address,created_at) VALUES(?,?,?,?,?,?)",
                       (1, str(uuid.uuid4()), 1, "Main Branch", "Moi Avenue, Nairobi", datetime.now(timezone.utc).isoformat(timespec="seconds")))
             c.execute("INSERT INTO sync_streams(branch_id,next_sequence) VALUES(1,1)")
         c.execute("INSERT INTO schema_versions(version,applied_at) VALUES(?,?)", (n, datetime.now(timezone.utc).isoformat(timespec="seconds")))
-SEED_SETTINGS = {"store_name": "Nova Mart", "store_address": "Moi Avenue, Nairobi, Kenya", "store_phone": "+254 712 345 678", "tax_rate": "16", "currency": "KSh "}
+SEED_SETTINGS = {"store_name": "Mauzo Mart", "store_address": "Moi Avenue, Nairobi, Kenya", "store_phone": "+254 712 345 678", "tax_rate": "16", "currency": "KSh "}
 
 def init_db():
     c = db()
@@ -312,7 +312,7 @@ def reset_approve(rid):
     c = db()
     r = c.execute("SELECT * FROM reset_requests WHERE id=? AND status='pending'", (rid,)).fetchone()
     if not r: return jsonify({"error": "not found"}), 404
-    temp = "Nova-" + secrets.token_hex(3)
+    temp = "Mauzo-" + secrets.token_hex(3)
     c.execute("UPDATE users SET pw=?, must_change=1 WHERE id=?",
               (hashlib.sha256(temp.encode()).hexdigest(), r["user_id"]))
     c.execute("UPDATE reset_requests SET status='done' WHERE id=?", (rid,))
@@ -469,7 +469,7 @@ def image_search():
         "action": "query", "generator": "search", "gsrsearch": f"filetype:bitmap {q}",
         "gsrlimit": 6, "gsrnamespace": 6, "prop": "imageinfo", "iiprop": "url", "iiurlwidth": 400, "format": "json"})
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "NovaPOS/1.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "MauzoPOS/1.0"})
         data = json.loads(urllib.request.urlopen(req, timeout=8).read())
     except Exception:
         return jsonify([])

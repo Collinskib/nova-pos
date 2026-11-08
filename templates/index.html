@@ -1,12 +1,12 @@
 <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Nova POS</title><script>document.documentElement.dataset.theme=localStorage.getItem('pos-theme')||'light'</script>
+<title>Mauzo POS</title><script>document.documentElement.dataset.theme=localStorage.getItem('pos-theme')||'light'</script>
 <script src="/static/html5-qrcode.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/pos.css"></head><body>
 <div class="shell">
 <nav>
-  <div class="brand"><span class="logo"><svg viewBox="0 0 24 24"><path d="M3 4h3l2.4 12.2A2 2 0 0 0 10.4 18h7.8a2 2 0 0 0 2-1.6L22 8H6"/><circle cx="11" cy="21" r="1.4"/><circle cx="18" cy="21" r="1.4"/></svg></span><div><h1>Nova POS</h1><p id="store"></p></div></div>
+  <div class="brand"><span class="logo"><svg viewBox="0 0 24 24"><path d="M3 4h3l2.4 12.2A2 2 0 0 0 10.4 18h7.8a2 2 0 0 0 2-1.6L22 8H6"/><circle cx="11" cy="21" r="1.4"/><circle cx="18" cy="21" r="1.4"/></svg></span><div><h1>Mauzo POS</h1><p id="store"></p></div></div>
   <a data-s="dash" class="on"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg><span>Dashboard</span></a>
   <a data-s="pos"><svg viewBox="0 0 24 24"><path d="M3 4h3l2.4 12.2A2 2 0 0 0 10.4 18h7.8a2 2 0 0 0 2-1.6L22 8H6"/><circle cx="11" cy="21" r="1.4"/><circle cx="18" cy="21" r="1.4"/></svg><span>Point of Sale</span></a>
   <a data-s="products"><svg viewBox="0 0 24 24"><path d="M12 2l9 5v10l-9 5-9-5V7z"/><path d="M12 12l9-5M12 12v10M12 12L3 7"/></svg><span>Products</span></a>
@@ -326,7 +326,7 @@ window.viewRc=async id=>{const rc=await api('/api/receipt/'+id);modal(`<h3>${rc.
 window.printRc=async id=>{const rc=await api('/api/receipt/'+id);const s=rc.sale,st=rc.settings;
   const w=window.open('','_blank','width=320,height=600');
   w.document.write(`<html><head><title>Receipt ${s.invoice_no}</title><style>body{font-family:monospace;font-size:12px;margin:16px;max-width:280px}h3,p{text-align:center;margin:2px 0}table{width:100%;border-collapse:collapse;margin:8px 0}td{padding:2px 0}.tot{border-top:1px dashed #000;font-weight:700}</style></head><body>
-  <h3>${esc(st.store_name||'Nova POS')}</h3><p>${esc(st.store_address||'')}<br>${esc(st.store_phone||'')}</p>
+  <h3>${esc(st.store_name||'Mauzo POS')}</h3><p>${esc(st.store_address||'')}<br>${esc(st.store_phone||'')}</p>
   <p>Receipt <b>${s.invoice_no}</b> · ${td(s.created)}${s.status==='void'?' · <b>VOID</b>':''}</p>
   <table>${rc.items.map(i=>`<tr><td>${esc(i.name)} ×${i.qty}</td><td style="text-align:right">${money(i.total)}</td></tr>`).join('')}
   <tr><td class="tot">TOTAL</td><td class="tot" style="text-align:right">${money(s.total)}</td></tr>
@@ -361,7 +361,7 @@ window.printRep=async()=>{const{d,r,s}=await repData();
   .kpis{display:flex;gap:12px;margin:16px 0}.kpi{border:1px solid #ddd;border-radius:8px;padding:10px 16px}.kpi b{font-size:18px}
   table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:5px 8px;border-bottom:1px solid #eee}th{color:#777;font-size:11px}
   .muted{color:#888;font-size:11px}</style></head><body>
-  <h1>Daily Report — ${d}</h1><p class="muted">Nova Mart · generated ${new Date().toLocaleString()}</p>
+  <h1>Daily Report — ${d}</h1><p class="muted">Mauzo Mart · generated ${new Date().toLocaleString()}</p>
   <div class="kpis"><div class="kpi"><div>Revenue</div><b>${money(r.totals.total)}</b></div><div class="kpi"><div>Orders</div><b>${r.totals.orders}</b></div>
   <div class="kpi"><div>VAT collected</div><b>${money(r.totals.vat||0)}</b></div></div>
   <h2>Top selling items</h2><table><tr><th>Product</th><th>Qty</th><th>Revenue</th></tr>
@@ -467,11 +467,11 @@ const DOCS=[
  ['users','Users &amp; resets','Admins add/remove users, assign roles, and reset passwords. <b>Reset requests</b> appear here when someone uses "Forgot password" — Approve to get a temporary password to hand over; they\'ll be asked to set a new one on login.'],
  ['settings','Settings','Store name, address, phone and currency feed the receipt header. VAT rate % applies to all taxable items — receipts show the VAT split. Tip: you can also rename the shop by clicking its name in the sidebar.']];
 function pgDocs(){
-  M.innerHTML=`<div class="top"><h1>Docs</h1><span class="sub">How Nova POS works — every screen, with pictures</span></div>
+  M.innerHTML=`<div class="top"><h1>Docs</h1><span class="sub">How Mauzo POS works — every screen, with pictures</span></div>
   <div class="docs">
   ${DOCS.map(d=>`<div class="card doc"><h2>${d[1]}</h2><p class="sub" style="font-size:14px;line-height:1.7;margin:10px 0 14px">${d[2]}</p>
     <img src="/static/docs/${d[0]}.png" alt="${d[1]} screen" loading="lazy" style="width:100%;border-radius:10px;border:1px solid var(--line)"></div>`).join('')}
-  <p class="hint">Nova POS · theme toggle is in the sidebar · all data lives in pos.db — back it up by copying that file.</p></div>`;
+  <p class="hint">Mauzo POS · theme toggle is in the sidebar · all data lives in pos.db — back it up by copying that file.</p></div>`;
 }
 
 /* ---------- Settings ---------- */
