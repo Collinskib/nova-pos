@@ -741,7 +741,7 @@ def devices():
                   (tok, DEFAULT_BUSINESS, DEFAULT_BRANCH, session["uid"], exp))
         audit(c, "device.pairing_issued", tok)
         c.commit(); return jsonify({"ok": True, "token": tok, "expires_at": exp, "hub_url": f"http://{lan_ip()}:5050"})
-    return jsonify(rows(c, "SELECT id,uuid,device_name,device_type,active,last_seen_at,created_at FROM devices ORDER BY id"))
+    return jsonify(rows(c, "SELECT id,uuid,device_name,device_type,active,last_seen_at,created_at FROM devices ORDER BY COALESCE(last_seen_at,'') DESC, id DESC"))
 
 @app.post("/api/v1/devices/pair")
 def device_pair():
@@ -860,7 +860,7 @@ def device_reports():
 @need_device
 def device_list_v1():
     """Registered device roster for admin till users — same query as /api/devices."""
-    return jsonify(rows(db(), "SELECT id,uuid,device_name,device_type,active,last_seen_at,created_at FROM devices ORDER BY id"))
+    return jsonify(rows(db(), "SELECT id,uuid,device_name,device_type,active,last_seen_at,created_at FROM devices ORDER BY COALESCE(last_seen_at,'') DESC, id DESC"))
 
 # ---------- Synchronization (§8) ----------
 @app.post("/api/v1/sync/push")
