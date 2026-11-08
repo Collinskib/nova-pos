@@ -53,7 +53,7 @@ window.renameShop=()=>modal(`<h3>Shop name</h3><form onsubmit="renameSave(event)
 window.renameSave=async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target));
   await api('/api/settings',{method:'PUT',body:d});S.boot.settings.store_name=d.store_name;store.textContent=d.store_name;
   closeM();toast('Shop renamed to '+d.store_name)};
-document.querySelectorAll('nav a[data-s]').forEach(a=>a.onclick=()=>{document.querySelectorAll('nav a').forEach(x=>x.classList.remove('on'));a.classList.add('on');clearInterval(window._poll);window._poll=null;NAV[a.dataset.s]()});
+document.querySelectorAll('nav a[data-s]').forEach(a=>a.onclick=()=>{document.querySelectorAll('nav a').forEach(x=>x.classList.remove('on'));a.classList.add('on');history.replaceState(null,"","#"+a.dataset.s);clearInterval(window._poll);window._poll=null;NAV[a.dataset.s]()});
 window.go=s=>document.querySelector(`nav a[data-s="${s}"]`).click();
 const tgl=document.getElementById('themeTgl');
 const themeLbl=()=>{const d=document.documentElement.dataset.theme==='dark';tgl.querySelector('.sw').classList.toggle('on',d);tgl.querySelector('span').textContent=d?'Light mode':'Dark mode'};
