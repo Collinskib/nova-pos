@@ -81,6 +81,22 @@ def onboarding():
     pg("POST", "branch_memberships", {"business_id": bid, "branch_id": brid, "user_id": uid})
     return jsonify({"ok": True, "business_id": bid, "branch_id": brid})
 
+@app.post("/api/branches")
+def add_branch():
+    """Create a branch — caller must hold an admin membership in that business."""
+    u = authed_user()
+    if not u: return jsonify({"error": "unauthorized"}), 401
+    j = request.json or {}
+    bid, name = j.get("business_id"), (j.get("name") or "").strip()
+    if not bid or not name: return jsonify({"error": "branch name required"}), 400
+    ms = pg("GET", "business_memberships",
+            params=f"?user_id=eq.{u['id']}&business_id=eq.{bid}&role=eq.admin&select=role&limit=1")
+    if not ms: return jsonify({"error": "admin only"}), 403
+    br = pg("POST", "branches", {"business_id": bid, "name": name, "address": j.get("address")})
+    if isinstance(br, dict) and br.get("_error"): return jsonify(br), 500
+    pg("POST", "branch_memberships", {"business_id": bid, "branch_id": br[0]["id"], "user_id": u["id"]})
+    return jsonify({"ok": True, "branch": br[0]})
+
 def need_hub(f):
     @wraps(f)
     def w(*a, **k):
