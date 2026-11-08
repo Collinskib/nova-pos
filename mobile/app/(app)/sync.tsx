@@ -10,7 +10,7 @@ export default function Sync() {
   const [conf, setConf] = useState<any[]>([]);
   const [cursor, setCursor] = useState(0);
   const [hubUrl, setHubUrl] = useState("");
-  const { syncState, pending, hubUp, lastSync, ctx } = useStore();
+  const { syncState, pending, hubUp, lastSync, ctx, syncError } = useStore();
 
   const reload = async () => {
     const d = await getDb();
@@ -26,7 +26,7 @@ export default function Sync() {
       <Text style={s.brand}>Sync status</Text>
       <View style={s.card}>
         <Row k="State" v={syncState} />
-        <Row k="Hub" v={hubUp ? "connected" : "unreachable"} c={hubUp ? "#3ecf8e" : "#e05a5a"} />
+        <Row k="Hub" v={hubUp ? "connected" : syncError === "repair" ? "device rejected — re-pair" : "unreachable"} c={hubUp ? "#3ecf8e" : "#e05a5a"} />
         <Row k="Pending events" v={String(pending)} c={pending ? "#f0a51f" : "#3ecf8e"} />
         <Row k="Hub cursor" v={String(cursor)} />
         <Row k="Last sync" v={lastSync ? new Date(lastSync).toLocaleTimeString() : "never"} />

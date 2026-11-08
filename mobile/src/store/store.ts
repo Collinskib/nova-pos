@@ -9,6 +9,7 @@ type State = {
   ctx: Ctx | null;
   cart: Record<string, CartItem>;
   syncState: Sync; pending: number; hubUp: boolean; lastSync: string | null;
+  syncError: "repair" | "net" | null;
   set: (p: Partial<State>) => void;
   addToCart: (p: Product) => void;
   setQty: (id: string, qty: number) => void;
@@ -17,7 +18,7 @@ type State = {
 };
 
 export const useStore = create<State>((set, get) => ({
-  ctx: null, cart: {}, syncState: "offline", pending: 0, hubUp: false, lastSync: null,
+  ctx: null, cart: {}, syncState: "offline", pending: 0, hubUp: false, lastSync: null, syncError: null,
   set: p => set(p),
   addToCart: p => set(s => ({ cart: { ...s.cart, [p.id]: { ...p, qty: (s.cart[p.id]?.qty || 0) + 1 } } })),
   setQty: (id, qty) => set(s => { const c = { ...s.cart };

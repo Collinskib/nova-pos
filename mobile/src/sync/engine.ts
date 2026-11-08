@@ -73,10 +73,11 @@ export async function syncOnce() {
       }
       pushed = done.size;
     }
-    st.set({ hubUp: true });
+    st.set({ hubUp: true, syncError: null });
   } catch (e: any) {
-    // timeout ≠ failure — events stay queued, retried with same IDs (§11.2)
-    st.set({ hubUp: false });
+    // timeout ≠ failure — events stay queued, retried with same IDs (§11.2).
+    // 401/403 means this device's key is gone or revoked — a re-pair, not a retry.
+    st.set({ hubUp: false, syncError: (e?.status === 401 || e?.status === 403) ? "repair" : "net" });
   }
 
   // 2. pull hub events → inbox → apply → ack (§11.3)
