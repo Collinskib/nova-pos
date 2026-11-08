@@ -544,7 +544,7 @@ def checkout():
         except sqlite3.Error: pass
         raise
     finally: c.close()
-    return jsonify({"ok": True, "invoice": inv, "total": eff, "cash": cash, "change": round(cash - total, 2), "id": sid})
+    return jsonify({"ok": True, "invoice": inv, "total": eff, "cash": cash, "change": round(cash - eff, 2), "id": sid})
 
 @app.get("/api/receipt/<int:sid>")
 @need_login
