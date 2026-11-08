@@ -29,6 +29,58 @@ def pg(method, path, data=None, params=""):
     except urllib.error.HTTPError as e:
         return {"_error": e.code, "detail": e.read().decode()[:400]}
 
+@app.after_request
+def cors(r):
+    r.headers["Access-Control-Allow-Origin"] = "*"
+    r.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, X-Hub-Key"
+    r.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
+    return r
+
+@app.route("/api/<path:p>", methods=["OPTIONS"])
+def _opt(p): return ("", 204)
+
+def authed_user():
+    """Verify a Supabase user JWT via GoTrue → auth user dict or None."""
+    tok = (request.headers.get("Authorization") or "").replace("Bearer ", "")
+    if not tok: return None
+    req = urllib.request.Request(f"{URL}/auth/v1/user",
+        headers={"apikey": KEY, "Authorization": f"Bearer {tok}"})
+    try:
+        with urllib.request.urlopen(req) as r: return json.loads(r.read())
+    except Exception: return None
+
+@app.get("/api/me")
+def me():
+    u = authed_user()
+    if not u: return jsonify({"error": "unauthorized"}), 401
+    ms = pg("GET", "business_memberships",
+            params=f"?user_id=eq.{u['id']}&select=role,businesses(name,id)")
+    if isinstance(ms, dict) and ms.get("_error"): return jsonify({"error": "server"}), 500
+    return jsonify({"email": u.get("email"), "id": u["id"], "memberships": ms or []})
+
+@app.post("/api/onboarding")
+def onboarding():
+    """First-run tenant creation: business + branch + admin membership."""
+    u = authed_user()
+    if not u: return jsonify({"error": "unauthorized"}), 401
+    existing = pg("GET", "business_memberships", params=f"?user_id=eq.{u['id']}&select=business_id&limit=1")
+    if existing: return jsonify({"error": "already onboarded"}), 409
+    j = request.json or {}
+    name = (j.get("business_name") or "").strip()
+    if not name: return jsonify({"error": "business name required"}), 400
+    uid = u["id"]
+    pg("POST", "profiles", {"id": uid,
+        "display_name": (u.get("user_metadata") or {}).get("full_name") or u.get("email")})
+    biz = pg("POST", "businesses", {"name": name})
+    if isinstance(biz, dict) and biz.get("_error"): return jsonify(biz), 500
+    bid = biz[0]["id"]
+    br = pg("POST", "branches", {"business_id": bid, "name": (j.get("branch_name") or "Main").strip()})
+    if isinstance(br, dict) and br.get("_error"): return jsonify(br), 500
+    brid = br[0]["id"]
+    pg("POST", "business_memberships", {"business_id": bid, "user_id": uid, "role": "admin"})
+    pg("POST", "branch_memberships", {"business_id": bid, "branch_id": brid, "user_id": uid})
+    return jsonify({"ok": True, "business_id": bid, "branch_id": brid})
+
 def need_hub(f):
     @wraps(f)
     def w(*a, **k):

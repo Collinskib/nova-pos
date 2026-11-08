@@ -1,0 +1,99 @@
+<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mauzo POS</title>
+<style>
+:root{--bg:#0d0a1f;--card:#1e1840;--acc:#8b5cf6;--ok:#3ecf8e;--bad:#e05a5a;--mut:#9a93c2;--txt:#f0eeff}
+*{box-sizing:border-box;font-family:system-ui,-apple-system,sans-serif}
+body{margin:0;background:var(--bg);color:var(--txt);min-height:100vh;display:flex;align-items:center;justify-content:center}
+.card{background:var(--card);border-radius:16px;padding:32px;width:min(420px,92vw)}
+h1{font-size:24px;margin:0 0 4px}
+.brand{color:var(--acc)}
+.sub{color:var(--mut);font-size:13px;margin-bottom:20px}
+label{display:block;font-size:13px;color:var(--mut);margin:10px 0 4px}
+input{width:100%;padding:12px;border-radius:10px;border:1px solid #2e2657;background:#161130;color:var(--txt);font-size:15px}
+button{width:100%;padding:13px;border:0;border-radius:10px;background:var(--acc);color:#fff;font-weight:700;font-size:15px;margin-top:16px;cursor:pointer}
+button.ghost{background:transparent;border:1px solid #3d3472}
+button:disabled{opacity:.5}
+.row{display:flex;gap:12px;align-items:center;margin:18px 0}
+.line{flex:1;border-top:1px solid #2e2657}
+.msg{font-size:13px;margin-top:12px;padding:10px;border-radius:8px}
+.err{background:#3d1a2a;color:#ffb3b8}.okm{background:#14352a;color:#8ff0c4}
+.tabs{display:flex;gap:8px;margin-bottom:18px}
+.tabs span{flex:1;text-align:center;padding:9px;border-radius:9px;cursor:pointer;font-size:14px;font-weight:700;color:var(--mut);background:#161130}
+.tabs span.on{background:var(--acc);color:#fff}
+.k{color:var(--mut);font-size:12px;margin-bottom:4px}
+.v{font-size:16px;font-weight:700;margin-bottom:14px}
+a{color:var(--acc)}
+</style></head>
+<body><main id="m"></main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script>
+const sb = supabase.createClient(CONF.url, CONF.anon);
+const M = document.getElementById("m");
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const tok = () => sb.auth.getSession().then(r => r.data.session?.access_token);
+const api = (p, body) => tok().then(t => fetch(CONF.api + p, {
+  method: body ? "POST" : "GET", headers: {Authorization: "Bearer " + t, "Content-Type": "application/json"},
+  body: body ? JSON.stringify(body) : undefined}).then(r => r.json()));
+
+let mode = "up";
+function login() {
+  M.innerHTML = `<div class="card"><h1><span class="brand">Mauzo</span> POS</h1>
+    <p class="sub">Sell anywhere — offline till, cloud dashboard.</p>
+    <div class="tabs"><span id="t-up" class="${mode==='up'?'on':''}" onclick="mode='up';login()">Create account</span>
+      <span id="t-in" class="${mode==='in'?'on':''}" onclick="mode='in';login()">Sign in</span></div>
+    <label>Email<input id="em" type="email" autocomplete="email"></label>
+    <label>Password<input id="pw" type="password"></label>
+    <button id="go" onclick="go()">${mode==='up'?'Create account':'Sign in'}</button>
+    <div class="row"><div class="line"></div><span class="sub" style="margin:0">or</span><div class="line"></div></div>
+    <button class="ghost" onclick="google()">Continue with Google</button>
+    <div id="msg"></div></div>`;
+  document.getElementById("pw").onkeydown = e => { if (e.key === "Enter") go(); };
+}
+const say = (h, cls) => document.getElementById("msg").innerHTML = `<div class="msg ${cls}">${h}</div>`;
+
+async function go() {
+  const em = em.value.trim(), pw = pw.value;
+  go.disabled = true;
+  const r = mode === "up"
+    ? await sb.auth.signUp({email: em, password: pw})
+    : await sb.auth.signInWithPassword({email: em, password: pw});
+  go.disabled = false;
+  if (r.error) return say(esc(r.error.message), "err");
+  if (mode === "up" && !r.data.session) return say("Check your email — click the verification link, then sign in.", "okm");
+  boot();
+}
+function google() {
+  sb.auth.signInWithOAuth({provider: "google", options: {redirectTo: location.origin + location.pathname}});
+}
+function onboard() {
+  M.innerHTML = `<div class="card"><h1>Set up your store</h1>
+    <p class="sub">This becomes your business — you can add branches after.</p>
+    <label>Store / business name<input id="bn" placeholder="e.g. Mauzo Mart"></label>
+    <label>First branch<input id="bb" value="Main"></label>
+    <button onclick="doOnboard()">Create my store</button><div id="msg"></div></div>`;
+}
+async function doOnboard() {
+  const r = await api("/api/onboarding", {business_name: bn.value, branch_name: bb.value});
+  if (r.error) return say(esc(r.error), "err");
+  boot();
+}
+async function boot() {
+  const {data} = await sb.auth.getSession();
+  if (!data.session) return login();
+  const me = await api("/api/me");
+  if (me.error === "unauthorized") return login();
+  const ms = me.memberships || [];
+  if (!ms.length) return onboard();
+  const b = ms[0].businesses;
+  M.innerHTML = `<div class="card"><h1><span class="brand">Mauzo</span> POS</h1>
+    <p class="sub">${esc(me.email)} · ${esc(ms[0].role)}</p>
+    <div class="k">Your store</div><div class="v">${esc(b?.name || "—")}</div>
+    <div class="k">Business ID</div><div class="v" style="font-size:11px;font-family:monospace">${esc(b?.id)}</div>
+    <p class="sub">Next: run the hub (<code>python app.py</code>) or pair the mobile app with a device code — sales sync here automatically.</p>
+    <button class="ghost" onclick="sb.auth.signOut().then(boot)">Sign out</button></div>`;
+}
+sb.auth.onAuthStateChange((e, s) => { if (e === "SIGNED_IN" || e === "SIGNED_OUT") boot(); });
+boot();
+</script></body></html>
