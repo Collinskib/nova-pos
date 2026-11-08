@@ -287,6 +287,7 @@ def _web_device(bid, brid):
 @app.get("/api/web/products")
 def web_products():
     u = authed_user()
+    if not u: return jsonify({"error": "unauthorized"}), 401
     ctx = _biz_ctx(u["id"])
     if not ctx: return jsonify({"error":"no store"}), 400
     bid, brid = ctx
@@ -299,6 +300,7 @@ def web_products():
 @app.post("/api/web/sale")
 def web_sale():
     u = authed_user()
+    if not u: return jsonify({"error": "unauthorized"}), 401
     ctx = _biz_ctx(u["id"])
     if not ctx: return jsonify({"error":"no store"}), 400
     bid, brid = ctx
