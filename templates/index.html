@@ -387,7 +387,7 @@ window.roleTog=async(id,role)=>{await api(`/api/users/${id}/role`,{method:'POST'
 
 /* ---------- Devices & sync ---------- */
 async function pgDevices(){
-  const [ds,st]=await Promise.all([api('/api/devices'),api('/api/v1/sync/status')]);
+  const [ds,st,shs]=await Promise.all([api('/api/devices'),api('/api/v1/sync/status'),api('/api/shifts')]);
   M.innerHTML=`<div class="top"><h1>Devices</h1><button class="btn primary" onclick="pairTok()">+ Pair a device</button></div>
   <div class="grid cards" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">
     <div class="card"><div class="k">Active devices</div><div class="v">${st.registered_devices}</div></div>
@@ -401,6 +401,14 @@ async function pgDevices(){
     <td><span class="badge ${d.active?'ok':'bad'}">${d.active?'active':'revoked'}</span></td>
     <td class="sub">${d.last_seen_at||'never'}</td><td class="sub">${(d.created_at||'').slice(0,10)}</td>
     <td style="text-align:right">${d.active?`<button class="btn small danger" onclick="revokeD(${d.id})">Revoke</button>`:''}</td></tr>`).join('')||'<tr><td colspan=6>No devices paired yet</td></tr>'}</table></div>
+  <div class="card section"><div class="ph"><span class="pi"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg></span><h2>Till shifts</h2></div>
+  <table><tr><th>Device</th><th>Cashier</th><th>Opened</th><th>Closed</th><th style="text-align:right">Float</th><th style="text-align:right">Expected</th><th style="text-align:right">Counted</th><th style="text-align:right">Diff</th></tr>
+  ${shs.map(s=>`<tr><td>${esc(s.device_name||'?')}</td><td>${esc(s.cashier_name||'—')}</td>
+    <td class="sub">${td(s.opened_at)}</td><td class="sub">${s.closed_at?td(s.closed_at):'<span class="badge ok">OPEN</span>'}</td>
+    <td style="text-align:right">${money(s.opening_float)}</td>
+    <td style="text-align:right">${s.expected_cash!=null?money(s.expected_cash):'—'}</td>
+    <td style="text-align:right">${s.closing_count!=null?money(s.closing_count):'—'}</td>
+    <td style="text-align:right"><span class="badge ${!s.difference?'ok':Math.abs(s.difference)>0.01?'bad':'ok'}">${s.difference!=null?(s.difference>0?'+':'')+s.difference.toFixed(2):'—'}</span></td></tr>`).join('')||'<tr><td colspan=8>No shifts yet — open one on a till</td></tr>'}</table></div>
   <p class="hint">Pairing flow: click "Pair a device" → on the mobile/other device call <code>POST /api/v1/devices/pair</code> with the token → it gets a <code>device_key</code> used as the <code>X-Device-Key</code> header on <code>/api/v1/sync/*</code>.</p>`;
 }
 window.pairTok=async()=>{const r=await api('/api/devices',{method:'POST',body:{}});

@@ -914,6 +914,12 @@ def device_list_v1():
     return jsonify(rows(db(), "SELECT id,uuid,device_name,device_type,active,last_seen_at,created_at FROM devices ORDER BY COALESCE(last_seen_at,'') DESC, id DESC"))
 
 # ---------- Shifts (till open/close + cash reconciliation) ----------
+@app.get("/api/shifts")
+@need_admin
+def shifts_admin():
+    return jsonify(rows(db(), """SELECT s.*, d.device_name FROM shifts s
+        LEFT JOIN devices d ON d.id=s.device_id ORDER BY s.id DESC LIMIT 50"""))
+
 @app.get("/api/v1/shifts")
 @need_device
 def shift_list():
