@@ -118,7 +118,7 @@ function show(p) {
   page = p;
   document.getElementById("nav").innerHTML =
     Object.entries(TABS).map(([k, l]) => `<span class="${k === p ? 'on' : ''}" onclick="show('${k}')">${l}</span>`).join("");
-  ({dash, sales, products, branches})[p]();
+  ({dash, pos, sales, products, branches})[p]();
 }
 
 /* ---------- pages ---------- */
