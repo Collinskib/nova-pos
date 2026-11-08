@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, FlatList, Alert, StyleSheet, Modal, Image } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, FlatList, Alert, StyleSheet, Modal, Image, Share, ScrollView } from "react-native";
 import { searchProducts, checkout, CartItem, Product } from "../../src/db/repos";
 import { refreshCatalog } from "../../src/sync/engine";
 import { CameraView, useCameraPermissions } from "expo-camera";
@@ -23,6 +23,7 @@ export default function Pos() {
     setScanning(false); setQ(data);   // search filters by barcode — exact match adds via tap
   };
   const [refreshing, setRefreshing] = useState(false);
+  const [rc, setRc] = useState<any>(null);
   const reload = () => searchProducts(q).then(setProds);
   useEffect(() => { reload(); }, [q]);
   const pullRefresh = async () => {
@@ -38,9 +39,15 @@ export default function Pos() {
     if (!ctx) return;
     try {
       const r = await checkout(ctx, items, { method: "cash", amount: parseFloat(cash) || total / 100 });
+      const paid = Math.round((parseFloat(cash) || total / 100) * 100);
+      const lines = items.map(i => ({ name: i.name, qty: i.qty,
+        total: Math.round(i.price_cents * i.qty * (1 - (i.discount_qty && i.qty >= i.discount_qty ? (i.discount_pct || 0) / 100 : 0))) }));
+      setRc({ no: r.receipt_no, lines, total: r.total_cents, paid,
+        tax: lines.filter(l => items.find(i => i.name === l.name)?.taxable).reduce((a, l) => a + Math.round(l.total * 0.16 / 1.16), 0),
+        change: Math.max(0, paid - r.total_cents), cashier: ctx.cashier_name || "—",
+        at: new Date().toLocaleString() });
       clearCart(); setSheet(false); setCash("");
       set({ pending: useStore.getState().pending + 1 });
-      Alert.alert("Sale complete", `Receipt ${r.receipt_no}\n${fmt(r.total_cents)}`);
     } catch (e: any) { Alert.alert("Cannot complete sale", e.message); }
   };
 
@@ -103,9 +110,41 @@ export default function Pos() {
           <TouchableOpacity onPress={() => setSheet(false)}><Text style={s.cancel}>Cancel</Text></TouchableOpacity>
         </View></View>
       </Modal>
+      <Modal visible={!!rc} transparent animationType="fade">
+        <View style={s.mo}><View style={s.ms}>
+          <ScrollView style={{ maxHeight: 420 }}>
+            <Text style={s.rcT}>NOVA POS</Text>
+            <Text style={s.rcS}>RECEIPT {rc?.no}</Text>
+            <Text style={s.rcS}>{rc?.at} · {rc?.cashier}</Text>
+            <View style={s.rcD} />
+            {rc?.lines.map((l: any, i: number) => (
+              <View key={i} style={s.rcR}>
+                <Text style={s.rcN}>{l.name} <Text style={s.rcS}>×{l.qty}</Text></Text>
+                <Text style={s.rcN}>{fmt(l.total)}</Text>
+              </View>))}
+            <View style={s.rcD} />
+            <View style={s.rcR}><Text style={s.rcS}>VAT incl. (16%)</Text><Text style={s.rcS}>{fmt(rc?.tax || 0)}</Text></View>
+            <View style={s.rcR}><Text style={s.rcTot}>TOTAL</Text><Text style={s.rcTot}>{fmt(rc?.total || 0)}</Text></View>
+            <View style={s.rcR}><Text style={s.rcS}>Cash tendered</Text><Text style={s.rcS}>{fmt(rc?.paid || 0)}</Text></View>
+            <View style={s.rcR}><Text style={s.rcS}>Change</Text><Text style={s.rcS}>{fmt(rc?.change || 0)}</Text></View>
+            <View style={s.rcD} />
+            <Text style={[s.rcS, { marginVertical: 4 }]}>Thank you!</Text>
+          </ScrollView>
+          <TouchableOpacity style={s.btn} onPress={() => Share.share({ message: rcText(rc) })}>
+            <Text style={s.btnT}>Share receipt</Text></TouchableOpacity>
+          <TouchableOpacity onPress={() => setRc(null)}><Text style={s.cancel}>Done</Text></TouchableOpacity>
+        </View></View>
+      </Modal>
     </View>
   );
 }
+
+const rcText = (rc: any) => rc ? [
+  "NOVA POS", `RECEIPT ${rc.no}`, `${rc.at} · ${rc.cashier}`, "-".repeat(32),
+  ...rc.lines.map((l: any) => `${l.name} x${l.qty}  KSh ${(l.total / 100).toFixed(2)}`),
+  "-".repeat(32), `TOTAL   KSh ${(rc.total / 100).toFixed(2)}`,
+  `Cash    KSh ${(rc.paid / 100).toFixed(2)}`, `Change  KSh ${(rc.change / 100).toFixed(2)}`,
+  "-".repeat(32), "Thank you!"].join("\n") : "";
 
 const s = StyleSheet.create({
   c: { flex: 1, backgroundColor: "#14102b", paddingTop: 56 },
@@ -136,4 +175,10 @@ const s = StyleSheet.create({
   cash: { borderWidth: 1, borderColor: "#e7e3f4", borderRadius: 12, padding: 15, fontSize: 18, marginBottom: 8, color: "#14102b" },
   chg: { color: "#3ecf8e", fontWeight: "700", marginBottom: 12, fontSize: 16 },
   cancel: { textAlign: "center", color: "#6d6790", padding: 14 },
+  rcT: { fontSize: 20, fontWeight: "800", color: "#14102b", textAlign: "center" },
+  rcS: { color: "#6d6790", fontSize: 12, textAlign: "center" },
+  rcD: { borderTopWidth: 1, borderStyle: "dashed", borderColor: "#d8d2ef", marginVertical: 8 },
+  rcR: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 3 },
+  rcN: { color: "#14102b", fontSize: 14 },
+  rcTot: { color: "#14102b", fontSize: 17, fontWeight: "800" },
 });
