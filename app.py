@@ -98,6 +98,15 @@ mig(3, """
 ALTER TABLE sales ADD COLUMN cashier_name TEXT;
 """)
 
+mig(4, """
+CREATE TABLE IF NOT EXISTS shifts(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  device_id INTEGER, cashier_name TEXT, business_id INTEGER, branch_id INTEGER,
+  opened_at TEXT NOT NULL, closed_at TEXT,
+  opening_float REAL DEFAULT 0, closing_count REAL,
+  expected_cash REAL, difference REAL, status TEXT DEFAULT 'OPEN');
+""")
+
 DEFAULT_BUSINESS, DEFAULT_BRANCH = 1, 1
 
 def apply_migrations(c):
@@ -863,6 +872,50 @@ def device_reports():
 def device_list_v1():
     """Registered device roster for admin till users — same query as /api/devices."""
     return jsonify(rows(db(), "SELECT id,uuid,device_name,device_type,active,last_seen_at,created_at FROM devices ORDER BY COALESCE(last_seen_at,'') DESC, id DESC"))
+
+# ---------- Shifts (till open/close + cash reconciliation) ----------
+@app.get("/api/v1/shifts")
+@need_device
+def shift_list():
+    return jsonify(rows(db(), "SELECT * FROM shifts WHERE device_id=? ORDER BY id DESC LIMIT 30", (request.device["id"],)))
+
+@app.get("/api/v1/shifts/current")
+@need_device
+def shift_current():
+    s = db().execute("SELECT * FROM shifts WHERE device_id=? AND status='OPEN' ORDER BY id DESC LIMIT 1",
+                     (request.device["id"],)).fetchone()
+    return jsonify({"shift": dict(s) if s else None})
+
+@app.post("/api/v1/shifts/open")
+@need_device
+def shift_open():
+    d = request.device; c = db(); j = request.json or {}
+    if c.execute("SELECT 1 FROM shifts WHERE device_id=? AND status='OPEN'", (d["id"],)).fetchone():
+        return jsonify({"error": "shift already open"}), 400
+    fl = float(j.get("float") or 0)
+    c.execute("""INSERT INTO shifts(device_id,cashier_name,business_id,branch_id,opened_at,opening_float,status)
+                 VALUES(?,?,?,?,?,?,'OPEN')""",
+              (d["id"], j.get("cashier_name") or d["device_name"], d["business_id"], d["branch_id"], utcnow(), fl))
+    audit(c, "shift.opened", f"{d['device_name']} float {fl}")
+    c.commit(); return jsonify({"ok": True})
+
+@app.post("/api/v1/shifts/close")
+@need_device
+def shift_close():
+    d = request.device; c = db(); j = request.json or {}
+    s = c.execute("SELECT * FROM shifts WHERE device_id=? AND status='OPEN' ORDER BY id DESC LIMIT 1",
+                  (d["id"],)).fetchone()
+    if not s: return jsonify({"error": "no open shift"}), 400
+    count = float(j.get("count") or 0)
+    expected = (s["opening_float"] or 0) + (c.execute(
+        "SELECT COALESCE(SUM(total),0) t FROM sales WHERE status='completed' AND device_id=? AND created>=?",
+        (d["id"], s["opened_at"])).fetchone()["t"] or 0)
+    diff = round(count - expected, 2)
+    c.execute("""UPDATE shifts SET closed_at=?,closing_count=?,expected_cash=?,difference=?,status='CLOSED' WHERE id=?""",
+              (utcnow(), count, expected, diff, s["id"]))
+    audit(c, "shift.closed", f"{d['device_name']} expected {expected} counted {count} diff {diff}")
+    c.commit()
+    return jsonify({"ok": True, "expected": expected, "counted": count, "difference": diff})
 
 # ---------- Synchronization (§8) ----------
 @app.post("/api/v1/sync/push")

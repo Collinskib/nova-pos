@@ -12,11 +12,18 @@ export default function Sync() {
   const [cursor, setCursor] = useState(0);
   const [hubUrl, setHubUrl] = useState("");
   const [staff, setStaff] = useState<any[]>([]);
+  const [sh, setSh] = useState<any>(null);
+  const [shIn, setShIn] = useState("");
+  const [last, setLast] = useState<any>(null);
   const { syncState, pending, hubUp, lastSync, ctx, syncError, set } = useStore();
 
   const reload = async () => {
     const d = await getDb();
     setOut(await all(d, "SELECT * FROM sync_outbox WHERE cloud_acked=0 ORDER BY id DESC LIMIT 50"));
+    try {
+      const c = await creds.load();
+      if (c) { const b = await hub.base(); const r = await hub.shiftCurrent(b, c.device_key); setSh(r.shift); }
+    } catch {}
     setConf(await all(d, "SELECT * FROM sync_conflicts WHERE resolved=0"));
     setCursor((await one<{ last_sequence: number }>(d, "SELECT last_sequence FROM sync_cursors WHERE destination='hub'"))?.last_sequence ?? 0);
     setHubUrl((await SecureStore.getItemAsync("hub_url")) || "");
@@ -43,6 +50,33 @@ export default function Sync() {
       </View>
       <TouchableOpacity style={[s.btn, { marginVertical: 12 }]} onPress={async () => { await syncOnce(); reload(); }}>
         <Text style={s.btnT}>Sync now</Text></TouchableOpacity>
+      <View style={s.card}>
+        <Text style={s.h}>Till shift {sh ? "· OPEN" : "· closed"}</Text>
+        {sh ? (<>
+          <Row k="Opened" v={new Date((sh.opened_at || "").replace(" ", "T") + "Z").toLocaleString()} />
+          <Row k="By" v={sh.cashier_name} />
+          <Row k="Float" v={ks(sh.opening_float)} />
+          <TextInput style={shInput} placeholder="Counted cash in drawer" placeholderTextColor="#8b86a8"
+            keyboardType="decimal-pad" value={shIn} onChangeText={setShIn} />
+          <TouchableOpacity style={[s.btn, { backgroundColor: "#e05a5a" }]}
+            onPress={async () => { const c = await creds.load(); if (!c) return;
+              const r = await hub.shiftClose(await hub.base(), c.device_key, parseFloat(shIn) || 0);
+              setLast(r); setShIn(""); reload(); }}>
+            <Text style={s.btnT}>Close shift</Text></TouchableOpacity>
+        </>) : (<>
+          <Text style={{ color: "#9a93c2", fontSize: 12, marginBottom: 6 }}>No open shift — enter the opening float to start one.</Text>
+          <TextInput style={shInput} placeholder="Opening float" placeholderTextColor="#8b86a8"
+            keyboardType="decimal-pad" value={shIn} onChangeText={setShIn} />
+          <TouchableOpacity style={s.btn}
+            onPress={async () => { const c = await creds.load(); if (!c) return;
+              await hub.shiftOpen(await hub.base(), c.device_key,
+                { float: parseFloat(shIn) || 0, cashier_name: ctx?.cashier_name });
+              setShIn(""); reload(); }}>
+            <Text style={s.btnT}>Open shift</Text></TouchableOpacity>
+        </>)}
+        {last && <Row k="Last close" v={`exp ${ks(last.expected)} · counted ${ks(last.counted)} · ${last.difference >= 0 ? "+" : ""}${last.difference}`}
+          c={last.difference ? "#e05a5a" : "#3ecf8e"} />}
+      </View>
       <TouchableOpacity style={[s.btn, { marginBottom: 8 }]}
         onPress={async () => {
           try {
@@ -73,6 +107,8 @@ export default function Sync() {
     </ScrollView>
   );
 }
+const ks = (v: any) => `KSh ${Number(v || 0).toFixed(2)}`;
+const shInput = { backgroundColor: "#2a2350", borderRadius: 10, padding: 12, color: "#fff", marginVertical: 8 } as any;
 const Row = ({ k, v, c }: any) => <View style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 5 }}>
   <Text style={{ color: "#9a93c2" }}>{k}</Text><Text style={{ color: c || "#ece9f8", fontWeight: "700" }}>{v}</Text></View>;
 const s = StyleSheet.create({
