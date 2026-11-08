@@ -37,6 +37,7 @@ export const hub = {
   shiftClose: (b: string, k: string, count: number) => req<any>(b, "/api/v1/shifts/close", { method: "POST", body: { count } }, k),
   customers: (b: string, k: string) => req<any[]>(b, "/api/v1/customers", {}, k),
   addCustomer: (b: string, k: string, body: any) => req<any>(b, "/api/v1/customers", { method: "POST", body }, k),
+  promos: (b: string, k: string) => req<any[]>(b, "/api/v1/promos", {}, k),
   doPair: (base: string, token: string, name: string) => req<{ ok: boolean; device_id: number; device_key: string; business_id: string; branch_id: string; error?: string }>(
     base, "/api/v1/devices/pair", { method: "POST", body: { token, device_name: name, device_type: "mobile" } }),
   status: (base: string, key: string) => req<any>(base, "/api/v1/sync/status", {}, key),

@@ -38,10 +38,22 @@ export default function Pos() {
   const [cust, setCust] = useState<string | null>(null);
   const [custs, setCusts] = useState<any[]>([]);
   const [newC, setNewC] = useState("");
+  const [promo, setPromo] = useState("");
+  const [promoCode, setPromoCode] = useState<string | null>(null);
+  const [promoMsg, setPromoMsg] = useState("");
+  const [promos, setPromos] = useState<any[]>([]);
+  const applyPromo = () => {
+    const p = promos.find(x => x.code === promo.trim().toUpperCase());
+    if (!p) { setPromoMsg("Invalid code"); return; }
+    if ((p.min_total || 0) * 100 > total) { setPromoMsg(`Needs ${fmt(p.min_total * 100)} minimum`); return; }
+    setDT(p.kind === "abs" ? "abs" : "pct"); setDV(String(p.value));
+    setPromoCode(p.code); setPromoMsg(`Applied ${p.code}`);
+  };
   useEffect(() => {
     if (!sheet) return;
     (async () => { try { const c = await creds.load(); if (!c) return;
-      const b = await hub.base(); setCusts(await hub.customers(b, c.device_key)); } catch {} })();
+      const b = await hub.base(); setCusts(await hub.customers(b, c.device_key));
+      setPromos(await hub.promos(b, c.device_key).catch(() => [])); } catch {} })();
   }, [sheet]);
   const reload = () => searchProducts(q).then(setProds);
   useEffect(() => { reload(); }, [q]);
@@ -57,15 +69,15 @@ export default function Pos() {
   const charge = async () => {
     if (!ctx) return;
     try {
-      const r = await checkout(ctx, items, pays.map(p => ({ method: p.m, amount: parseFloat(p.a) || 0 })), cust || undefined, discC());
+      const r = await checkout(ctx, items, pays.map(p => ({ method: p.m, amount: parseFloat(p.a) || 0 })), cust || undefined, discC(), promoCode || undefined);
       const paid = paidC();
       const lines = items.map(i => ({ name: i.name, qty: i.qty,
         total: Math.round(i.price_cents * i.qty * (1 - (i.discount_qty && i.qty >= i.discount_qty ? (i.discount_pct || 0) / 100 : 0))) }));
       setRc({ no: r.receipt_no, lines, total: r.total_cents, paid,
         tax: lines.filter(l => items.find(i => i.name === l.name)?.taxable).reduce((a, l) => a + Math.round(l.total * 0.16 / 1.16), 0),
         change: Math.max(0, paid - r.total_cents), cashier: ctx.cashier_name || "—",
-        cust: cust || "Walk-in", disc: discC(), at: new Date().toLocaleString() });
-      clearCart(); setSheet(false); setPays([{ m: "cash", a: "" }]); setCust(null); setDV("");
+        cust: cust || "Walk-in", disc: discC(), promo: promoCode, at: new Date().toLocaleString() });
+      clearCart(); setSheet(false); setPays([{ m: "cash", a: "" }]); setCust(null); setDV(""); setPromo(""); setPromoCode(null); setPromoMsg("");
       set({ pending: useStore.getState().pending + 1 });
     } catch (e: any) { Alert.alert("Cannot complete sale", e.message); }
   };
@@ -138,6 +150,11 @@ export default function Pos() {
               keyboardType="decimal-pad" value={dV} onChangeText={setDV} />
             {discC() > 0 && <Text style={{ alignSelf: "center", color: "#3ecf8e", fontWeight: "700" }}>−{fmt(discC())}</Text>}
           </View>
+          <Text style={{ color: "#6d6790", fontSize: 12, marginBottom: 4 }}>Promo code</Text>
+          <TextInput style={[s.cash, { marginBottom: 4, padding: 10, fontSize: 14 }]} placeholder="e.g. KARIBU10"
+            placeholderTextColor="#8b86a8" autoCapitalize="characters" value={promo} onChangeText={setPromo}
+            onSubmitEditing={applyPromo} onBlur={promo ? applyPromo : undefined} returnKeyType="done" />
+          {promoMsg ? <Text style={{ color: promoCode ? "#3ecf8e" : "#e05a5a", fontSize: 12, marginBottom: 6 }}>{promoMsg}</Text> : null}
           <Text style={{ color: "#6d6790", fontSize: 12, marginBottom: 4 }}>Customer</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 6 }}>
             <TouchableOpacity onPress={() => setCust(null)} style={[s.pchip, !cust && s.pchipOn]}>
@@ -193,6 +210,7 @@ export default function Pos() {
             <View style={s.rcD} />
             <View style={s.rcR}><Text style={s.rcS}>Customer</Text><Text style={s.rcS}>{rc?.cust || "Walk-in"}</Text></View>
             <View style={s.rcR}><Text style={s.rcS}>VAT incl. (16%)</Text><Text style={s.rcS}>{fmt(rc?.tax || 0)}</Text></View>
+            {rc?.promo && <View style={s.rcR}><Text style={s.rcS}>Promo</Text><Text style={s.rcS}>{rc.promo}</Text></View>}
             {rc?.disc > 0 && <View style={s.rcR}><Text style={s.rcS}>Discount</Text><Text style={s.rcS}>−{fmt(rc.disc)}</Text></View>}
             <View style={s.rcR}><Text style={s.rcTot}>TOTAL</Text><Text style={s.rcTot}>{fmt(rc?.total || 0)}</Text></View>
             <View style={s.rcR}><Text style={s.rcS}>Cash tendered</Text><Text style={s.rcS}>{fmt(rc?.paid || 0)}</Text></View>

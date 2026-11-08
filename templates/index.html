@@ -182,7 +182,7 @@ const rcHtml=rc=>`<h4>${esc(rc.settings.store_name)}</h4><p class="c">${esc(rc.s
 
 /* ---------- Products ---------- */
 async function pgProducts(){
-  const[ps,cs,bs,ss]=await Promise.all([api('/api/products'),api('/api/lookup/categories'),api('/api/lookup/brands'),api('/api/lookup/suppliers')]);
+  const[ps,cs,bs,ss,pr]=await Promise.all([api('/api/products'),api('/api/lookup/categories'),api('/api/lookup/brands'),api('/api/lookup/suppliers'),api('/api/promos')]);
   S.boot.categories=cs;S.boot.brands=bs;S.boot.suppliers=ss;
   const adm=S.boot.user.role==='admin';
   M.innerHTML=`<div class="top"><h1>Products</h1>${adm?'<span><button class="btn" onclick="impForm()">📄 Import</button> <button class="btn primary" onclick="pForm()">+ New product</button></span>':''}</div>
@@ -191,13 +191,18 @@ async function pgProducts(){
   <tbody id="pt"></tbody></table></div>
   <div class="grid cols section">
     <div class="card"><h2>Categories &amp; Brands</h2>${lkForm('categories',cs)}<hr style="border-color:var(--line);margin:14px 0">${lkForm('brands',bs)}</div>
-    <div class="card"><h2>Suppliers</h2>${lkForm('suppliers',ss,true)}</div></div>`;
+    <div class="card"><h2>Suppliers</h2>${lkForm('suppliers',ss,true)}</div>
+    <div class="card"><h2>Promo codes</h2>${promoHTML(pr)}</div></div>`;
   const draw=list=>pt.innerHTML=list.map(p=>`<tr><td style="width:56px">${p.image?`<img class="timg" src="${esc(p.image)}" loading="lazy" onerror="this.remove()">`:'<div class="timg ph">📦</div>'}</td><td class="mono">${esc(p.barcode)}</td><td>${esc(p.name)}${p.taxable?'':' <span class="badge warn">VAT-exempt</span>'}${p.discount_qty>0?` <span class="badge ok">${p.discount_qty}+ −${p.discount_pct}%</span>`:''}${p.expiry?` <span class="badge ${new Date(p.expiry)<new Date(Date.now()+30*864e5)?'bad':'warn'}">exp ${p.expiry}</span>`:''}</td><td>${esc(p.category||'—')}</td><td>${esc(p.brand||'—')}</td><td style="text-align:right">${money(p.cost)}</td><td style="text-align:right"><b>${money(p.price)}</b></td><td style="text-align:right"><span class="badge ${p.stock<=10?'warn':'ok'}">${p.stock}</span></td>${adm?`<td style="text-align:right"><button class="btn small" onclick='pForm(${JSON.stringify(p)})'>Edit</button> <button class="btn small danger" onclick="pdel(${p.id})">✕</button>`:''}</tr>`).join('');
   draw(ps);pq.oninput=()=>draw(ps.filter(p=>p.name.toLowerCase().includes(pq.value.toLowerCase())||String(p.barcode).includes(pq.value)));
   if(S.q){pq.value=S.q;pq.dispatchEvent(new Event('input'));S.q=''}
 }
 const lkForm=(k,list,full)=>`<form onsubmit="lkAdd(event,'${k}',${full})" class="row" style="margin-bottom:12px"><input name="name" placeholder="New ${k.slice(0,-1)}…" required style="flex:2">${full?'<input name="contact" placeholder="Contact"><input name="phone" placeholder="Phone">':''}<button class="btn">Add</button></form>
   ${list.map(x=>`<span class="badge ok" style="margin:0 6px 6px 0;display:inline-block">${esc(x.name)}</span>`).join('')}`;
+const promoHTML=list=>`<form onsubmit="promoAdd(event)" class="row" style="margin-bottom:12px"><input name="code" placeholder="Code" required style="flex:2;text-transform:uppercase"><select name="kind"><option value="pct">% off</option><option value="abs">KSh off</option></select><input name="value" type="number" step="0.01" placeholder="Value" required style="flex:1"><input name="min_total" type="number" step="0.01" placeholder="Min KSh" style="flex:1"><button class="btn">Add</button></form>
+  ${list.map(p=>`<span class="badge ${p.active?'ok':'bad'}" style="margin:0 6px 6px 0;display:inline-block">${esc(p.code)} ${p.kind==='pct'?p.value+'%':'KSh '+p.value}${p.min_total?` (≥${money(p.min_total)})`:''} ${p.active?`<a href="#" onclick="promoDel(${p.id});return false" style="color:inherit">✕</a>`:''}</span>`).join('')||'<p class="hint">No promo codes yet</p>'}`;
+window.promoAdd=async e=>{e.preventDefault();await api('/api/promos',{method:'POST',body:Object.fromEntries(new FormData(e.target))});pgProducts()};
+window.promoDel=async id=>{await api('/api/promos/'+id+'/delete',{method:'POST'});pgProducts()};
 window.lkAdd=async(e,k,f)=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target));await api('/api/lookup/'+k,{method:'POST',body:d});toast('Added');pgProducts()};
 window.pForm=(p={})=>{modal(`<h3>${p.id?'Edit':'New'} product</h3><form onsubmit="pSave(event,${p.id||0})">
   <div class="row"><label>Barcode<input name="barcode" value="${esc(p.barcode||'')}" required></label><label>Price<input name="price" type="number" step="0.01" value="${p.price??''}" required></label><label>Wholesale<input name="price_wholesale" type="number" step="0.01" value="${p.price_wholesale??''}" placeholder="optional"></label></div>

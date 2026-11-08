@@ -59,7 +59,7 @@ async function nextReceipt(d: any) {
 }
 
 // ---------- atomic checkout (spec §8) ----------
-export async function checkout(ctx: any, items: CartItem[], payments: { method: string; amount: number }[], customer?: string, discCents = 0) {
+export async function checkout(ctx: any, items: CartItem[], payments: { method: string; amount: number }[], customer?: string, discCents = 0, promo?: string) {
   return tx(async d => {
     const id = uuid(), receipt = await nextReceipt(d);
     let sub = 0, tax = 0;
@@ -103,7 +103,7 @@ export async function checkout(ctx: any, items: CartItem[], payments: { method: 
     const event_id = await emit(d, ctx, "SALE_CREATED", id,
       { sale_id: id, receipt_no: receipt, total_cents: total, tax_cents: tax, discount_cents: disc, items: lines,
         paid_cents: payCents, payments: payments.map(p => ({ method: p.method, amount_cents: money(p.amount) })),
-        cashier_name: ctx.cashier_name || null, customer_name: customer || null });
+        cashier_name: ctx.cashier_name || null, customer_name: customer || null, promo_code: promo || null });
     return { id, receipt_no: receipt, total_cents: total, event_id };
   });
 }

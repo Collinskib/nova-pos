@@ -117,6 +117,13 @@ mig(6, """
 ALTER TABLE products ADD COLUMN price_wholesale REAL;
 """)
 
+mig(7, """
+CREATE TABLE IF NOT EXISTS promos(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE, kind TEXT, value REAL,
+  min_total REAL DEFAULT 0, active INTEGER DEFAULT 1, created_at TEXT);
+ALTER TABLE sales ADD COLUMN promo_code TEXT;
+""")
+
 DEFAULT_BUSINESS, DEFAULT_BRANCH = 1, 1
 
 def apply_migrations(c):
@@ -848,12 +855,12 @@ def apply_sale_event(c, dev, e):
     tot = f(p.get("total_cents") or p.get("total"))
     paid = f(p["paid_cents"]) if p.get("paid_cents") is not None else tot
     c.execute("""INSERT INTO sales(invoice_no,total,cash,change_due,vat,discount,user_id,status,created,
-                 sale_uuid,business_id,branch_id,device_id,cashier_name,customer_name)
-                 VALUES(?,?,?,?,?,?,?,'completed',?,?,?,?,?,?,?)""",
+                 sale_uuid,business_id,branch_id,device_id,cashier_name,customer_name,promo_code)
+                 VALUES(?,?,?,?,?,?,?,'completed',?,?,?,?,?,?,?,?)""",
               (inv, tot, paid, round(max(0, paid - tot), 2),
                f(p.get("tax_cents") or p.get("vat")), f(p.get("discount_cents") or 0), uid,
                (e.get("device_created_at") or utcnow())[:19], suid, dev["business_id"], dev["branch_id"], dev["id"], cname,
-               p.get("customer_name")))
+               p.get("customer_name"), p.get("promo_code")))
     sid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
     for i in p.get("items", []):
         lt = f(i.get("total_cents") if "total_cents" in i else i.get("total"))
@@ -940,6 +947,29 @@ def device_customers():
                   (j["name"].strip(), (j.get("phone") or "").strip(), utcnow()))
         c.commit(); return jsonify({"ok": True, "id": c.execute("SELECT last_insert_rowid()").fetchone()[0]})
     return jsonify(rows(c, "SELECT id,name,phone FROM customers ORDER BY name"))
+
+@app.route("/api/promos", methods=["GET", "POST"])
+@need_admin
+def promos():
+    c = db()
+    if request.method == "POST":
+        j = request.json or {}
+        c.execute("INSERT INTO promos(code,kind,value,min_total,active,created_at) VALUES(?,?,?,?,1,?)",
+                  ((j.get("code") or "").strip().upper(), j.get("kind", "pct"),
+                   float(j.get("value") or 0), float(j.get("min_total") or 0), utcnow()))
+        c.commit(); return jsonify({"ok": True})
+    return jsonify(rows(c, "SELECT * FROM promos ORDER BY id DESC"))
+
+@app.post("/api/promos/<int:pid>/delete")
+@need_admin
+def promo_del(pid):
+    c = db(); c.execute("UPDATE promos SET active=0 WHERE id=?", (pid,)); c.commit()
+    return jsonify({"ok": True})
+
+@app.get("/api/v1/promos")
+@need_device
+def device_promos():
+    return jsonify(rows(db(), "SELECT code,kind,value,min_total FROM promos WHERE active=1"))
 
 # ---------- Synchronization (§8) ----------
 @app.post("/api/v1/sync/push")
