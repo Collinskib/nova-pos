@@ -821,7 +821,7 @@ def apply_sale_event(c, dev, e):
     inv = p.get("receipt_no") or p.get("invoice_no") or "DEV-" + suid[:8]
     if c.execute("SELECT 1 FROM sales WHERE invoice_no=?", (inv,)).fetchone():
         inv += "-" + suid[:4]
-    cname = p.get("cashier_name")
+    cname = p.get("cashier_name") or dev.get("device_name")  # till user first, device as fallback
     uid = None
     if cname:
         u = c.execute("SELECT id FROM users WHERE name=? OR username=?", (cname, cname)).fetchone()

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView } from "react-native";
 import { getDb, all, one } from "../../src/db/database";
 import { syncOnce, stopSync } from "../../src/sync/engine";
-import { creds } from "../../src/lib/api";
+import { creds, hub } from "../../src/lib/api";
 import { useStore } from "../../src/store/store";
 import * as SecureStore from "expo-secure-store";
 
@@ -11,6 +11,7 @@ export default function Sync() {
   const [conf, setConf] = useState<any[]>([]);
   const [cursor, setCursor] = useState(0);
   const [hubUrl, setHubUrl] = useState("");
+  const [staff, setStaff] = useState<any[]>([]);
   const { syncState, pending, hubUp, lastSync, ctx, syncError, set } = useStore();
 
   const reload = async () => {
@@ -42,6 +43,23 @@ export default function Sync() {
       </View>
       <TouchableOpacity style={[s.btn, { marginVertical: 12 }]} onPress={async () => { await syncOnce(); reload(); }}>
         <Text style={s.btnT}>Sync now</Text></TouchableOpacity>
+      <TouchableOpacity style={[s.btn, { marginBottom: 8 }]}
+        onPress={async () => {
+          try {
+            const c = await creds.load(); if (!c) return;
+            const base = await hub.base();
+            setStaff(await hub.users(base, c.device_key));
+          } catch {}
+        }}>
+        <Text style={s.btnT}>Switch till user {ctx?.cashier_name ? `(${ctx.cashier_name})` : ""}</Text></TouchableOpacity>
+      {staff.map(u => (
+        <TouchableOpacity key={u.id} style={[s.btn, { marginBottom: 6, backgroundColor: "#2a2350" }]}
+          onPress={async () => {
+            const c = await creds.load(); if (!c) return;
+            const n = { ...c, cashier_id: u.id, cashier_name: u.name || u.username, role: u.role };
+            await creds.save(n); set({ ctx: n }); setStaff([]);
+          }}>
+          <Text style={s.btnT}>{u.name || u.username} · {u.role}</Text></TouchableOpacity>))}
       <TouchableOpacity style={[s.btn, { borderColor: "#e05a5a" }]}
         onPress={async () => { stopSync(); await creds.clear(); set({ ctx: null, syncError: null }); }}>
         <Text style={[s.btnT, { color: "#e05a5a" }]}>Sign out & re-pair</Text></TouchableOpacity>
