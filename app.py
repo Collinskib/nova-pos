@@ -608,24 +608,23 @@ def lookups(kind):
     return jsonify(rows(c, f"SELECT * FROM {table} ORDER BY name"))
 
 # ---------- Reports ----------
-@app.get("/api/reports")
-@need_login
-def reports():
-    d = request.args.get("date", date.today().isoformat()); c = db()
-    return jsonify({
+def _reports_payload(c, d):
+    return {
         "daily": rows(c, """SELECT s.invoice_no, s.total, s.status, s.created, u.name cashier FROM sales s
             LEFT JOIN users u ON u.id=s.user_id WHERE date(s.created)=? ORDER BY s.id DESC""", (d,)),
         "top": rows(c, """SELECT si.name, SUM(si.qty) qty, SUM(si.total) revenue FROM sale_items si
             JOIN sales s ON s.id=si.sale_id WHERE s.status='completed' GROUP BY si.product_id ORDER BY qty DESC LIMIT 8"""),
         "totals": dict(c.execute("""SELECT COALESCE(SUM(total),0) total, COUNT(*) orders FROM sales
             WHERE date(created)=? AND status='completed'""", (d,)).fetchone()),
-    })
+    }
 
-@app.get("/api/dashboard")
+@app.get("/api/reports")
 @need_login
-def dashboard():
-    c = db(); t = date.today().isoformat()
-    return jsonify({
+def reports():
+    return jsonify(_reports_payload(db(), request.args.get("date", date.today().isoformat())))
+
+def _dashboard_payload(c, t):
+    return {
         "today": dict(c.execute("SELECT COALESCE(SUM(total),0) revenue, COUNT(*) orders FROM sales WHERE date(created)=? AND status='completed'", (t,)).fetchone()),
         "products": c.execute("SELECT COUNT(*) n FROM products").fetchone()["n"],
         "stock_value": dict(c.execute("SELECT COALESCE(SUM(stock*cost),0) v FROM products").fetchone()),
@@ -637,7 +636,12 @@ def dashboard():
         "top": rows(c, """SELECT si.name, SUM(si.qty) qty, MAX(p.image) image FROM sale_items si
             JOIN sales s ON s.id=si.sale_id LEFT JOIN products p ON p.id=si.product_id
             WHERE s.status='completed' GROUP BY si.product_id ORDER BY qty DESC LIMIT 5"""),
-    })
+    }
+
+@app.get("/api/dashboard")
+@need_login
+def dashboard():
+    return jsonify(_dashboard_payload(db(), date.today().isoformat()))
 
 # ---------- Users & settings ----------
 @app.route("/api/users", methods=["GET", "POST"])
@@ -827,6 +831,24 @@ def apply_sale_event(c, dev, e):
 def device_users():
     """Staff list for the mobile "who's on this till" picker — no passwords."""
     return jsonify(rows(db(), "SELECT id,username,name,role FROM users ORDER BY id"))
+
+@app.get("/api/v1/dashboard")
+@need_device
+def device_dashboard():
+    """Business-wide dashboard for admin till users — same payload as /api/dashboard."""
+    return jsonify(_dashboard_payload(db(), date.today().isoformat()))
+
+@app.get("/api/v1/reports")
+@need_device
+def device_reports():
+    """Daily report for admin till users — same payload as /api/reports."""
+    return jsonify(_reports_payload(db(), request.args.get("date", date.today().isoformat())))
+
+@app.get("/api/v1/devices")
+@need_device
+def device_list_v1():
+    """Registered device roster for admin till users — same query as /api/devices."""
+    return jsonify(rows(db(), "SELECT id,uuid,device_name,device_type,active,last_seen_at,created_at FROM devices ORDER BY id"))
 
 # ---------- Synchronization (§8) ----------
 @app.post("/api/v1/sync/push")

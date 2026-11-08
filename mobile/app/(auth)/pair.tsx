@@ -16,7 +16,7 @@ export default function Pair() {
   const [users, setUsers] = useState<any[]>([]);
   const pendingCtx = useRef<any>(null);
   const pickCashier = async (u: any) => {
-    const c = { ...pendingCtx.current, cashier_id: u.id, cashier_name: u.name || u.username };
+    const c = { ...pendingCtx.current, cashier_id: u.id, cashier_name: u.name || u.username, role: u.role };
     await creds.save(c); set({ ctx: c }); startSync();
   };
   const [scan, setScan] = useState(false);

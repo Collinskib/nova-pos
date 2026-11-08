@@ -29,19 +29,29 @@ export const hub = {
   ack: (base: string, seq: number, key: string) => req(base, "/api/v1/sync/ack", { method: "POST", body: { last_sequence: seq } }, key),
   products: (base: string, key: string) => req<any[]>(base, "/api/v1/products", {}, key),
   users: (base: string, key: string) => req<any[]>(base, "/api/v1/users", {}, key),
+  dashboard: (base: string, key: string) => req<any>(base, "/api/v1/dashboard", {}, key),
+  reports: (base: string, key: string, d?: string) => req<any>(base, `/api/v1/reports${d ? `?date=${d}` : ""}`, {}, key),
+  devices: (base: string, key: string) => req<any[]>(base, "/api/v1/devices", {}, key),
   doPair: (base: string, token: string, name: string) => req<{ ok: boolean; device_id: number; device_key: string; business_id: string; branch_id: string; error?: string }>(
     base, "/api/v1/devices/pair", { method: "POST", body: { token, device_name: name, device_type: "mobile" } }),
   status: (base: string, key: string) => req<any>(base, "/api/v1/sync/status", {}, key),
 };
 
 export const creds = {
-  save: (d: { device_key: string; device: string; business: string; branch: string }) =>
+  save: (d: { device_key: string; device: string; business: string; branch: string;
+              cashier_id?: any; cashier_name?: string; role?: string }) =>
     Promise.all([SecureStore.setItemAsync("device_key", d.device_key),
       SecureStore.setItemAsync("device_id", String(d.device)),
-      SecureStore.setItemAsync("business", d.business), SecureStore.setItemAsync("branch", d.branch)]),
+      SecureStore.setItemAsync("business", d.business), SecureStore.setItemAsync("branch", d.branch),
+      d.cashier_id != null ? SecureStore.setItemAsync("cashier_id", String(d.cashier_id)) : Promise.resolve(0 as any),
+      d.cashier_name ? SecureStore.setItemAsync("cashier_name", d.cashier_name) : Promise.resolve(0 as any),
+      d.role ? SecureStore.setItemAsync("role", d.role) : Promise.resolve(0 as any)]),
   load: async () => {
-    const [k, id, b, br] = await Promise.all(["device_key", "device_id", "business", "branch"].map(k => SecureStore.getItemAsync(k)));
-    return k ? { device_key: k, device: id!, business: b!, branch: br! } : null;
+    const [k, id, b, br, cid, cn, ro] = await Promise.all(
+      ["device_key", "device_id", "business", "branch", "cashier_id", "cashier_name", "role"].map(k => SecureStore.getItemAsync(k)));
+    return k ? { device_key: k, device: id!, business: b!, branch: br!,
+                 cashier_id: cid ?? undefined, cashier_name: cn ?? undefined, role: ro ?? undefined } : null;
   },
-  clear: () => Promise.all(["device_key", "device_id", "business", "branch", "hub_url"].map(k => SecureStore.deleteItemAsync(k))),
+  clear: () => Promise.all(["device_key", "device_id", "business", "branch", "hub_url",
+      "cashier_id", "cashier_name", "role"].map(k => SecureStore.deleteItemAsync(k))),
 };

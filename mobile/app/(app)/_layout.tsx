@@ -7,6 +7,7 @@ const I = ({ c, t }: { c: any; t: string }) =>
 
 export default function TabsLayout() {
   const syncState = useStore(s => s.syncState);
+  const isAdmin = useStore(s => s.ctx?.role === "admin");
   const dot = { offline: "#e05a5a", pending: "#f0a51f", syncing: "#8b5cf6", synced: "#3ecf8e", error: "#e05a5a" }[syncState];
   return (
     <Tabs screenOptions={{ headerShown: false, tabBarStyle: { backgroundColor: "#1e1840", borderTopColor: "#2a2350" },
@@ -18,6 +19,13 @@ export default function TabsLayout() {
       <Tabs.Screen name="transfers" options={{ title: "Transfers", tabBarIcon: ({ color }) => <I c={color} t="⇄" /> }} />
       <Tabs.Screen name="sync" options={{ title: "Sync", tabBarBadge: syncState === "synced" ? undefined : "•",
         tabBarBadgeStyle: { color: dot, fontSize: 22 }, tabBarIcon: ({ color }) => <I c={color} t="⇅" /> }} />
+      <Tabs.Screen name="admin" options={{ title: "Admin", tabBarIcon: ({ color }) => <I c={color} t="⚙" />,
+        href: isAdmin ? undefined : null }} />
+      {/* hidden admin sub-screens — reached from the Admin menu, never tab-bar items */}
+      <Tabs.Screen name="products" options={{ href: null }} />
+      <Tabs.Screen name="reports" options={{ href: null }} />
+      <Tabs.Screen name="users" options={{ href: null }} />
+      <Tabs.Screen name="devices" options={{ href: null }} />
     </Tabs>
   );
 }

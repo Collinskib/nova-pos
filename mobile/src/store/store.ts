@@ -2,7 +2,8 @@ import { create } from "zustand";
 import type { CartItem, Product } from "../db/repos";
 
 export type Sync = "offline" | "pending" | "syncing" | "synced" | "error";
-export type Ctx = { device: string; business: string; branch: string };
+export type Ctx = { device: string; business: string; branch: string;
+                    cashier_id?: string; cashier_name?: string; role?: string };
 
 type State = {
   ctx: Ctx | null;
