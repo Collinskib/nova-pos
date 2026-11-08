@@ -147,12 +147,15 @@ window.drawCart=()=>{ci.innerHTML=S.cart.map((i,x)=>`<div class="ci"><span class
   ct.textContent=money(totOf());
   cvat.textContent=vatOf()>0.004?`incl. VAT ${S.boot.settings.tax_rate}% · ${money(vatOf())}`:''};
 window.cq=(x,d)=>{S.cart[x].qty+=d;if(S.cart[x].qty<=0)S.cart.splice(x,1);drawCart()};
-window.pay=()=>{const t=totOf();if(!t)return;
+window.pay=async()=>{const t=totOf();if(!t)return;if(!S.custs)S.custs=await api('/api/customers');
   modal(`<h3>Settle payment</h3><p class="sub" style="margin-bottom:12px">Total due <b>${money(t)}</b></p>
+    <div class="row"><label>Method<select id="pm"><option>cash</option><option>mpesa</option><option>card</option><option>credit</option></select></label>
+    <label>Customer<select id="pcust"><option value="">Walk-in</option>${S.custs.map(x=>`<option>${esc(x.name)}</option>`).join('')}</select></label></div>
+    <div class="row"><label>Discount<input id="pdisc" type="number" step="0.01" value="0"></label><label>Promo code<input id="ppromo" placeholder="optional"></label></div>
     <label>Cash received<input id="cash" type="number" step="0.01" value="${t.toFixed(2)}" autofocus></label>
     <p style="margin:10px 0">Change: <b id="chg">${money(0)}</b></p>
     <div class="row"><button type="button" class="btn" style="flex:1" onclick="closeM()">Cancel</button><button class="btn primary" style="flex:2" onclick="doPay(${t})">Complete sale</button></div>`);
-  cash.oninput=()=>chg.textContent=money(Math.max(0,cash.value-t))};
+  cash.oninput=()=>chg.textContent=money(Math.max(0,cash.value-Math.max(0,t-(+pdisc.value||0))))};
 window.parkSale=async()=>{if(!S.cart.length)return toast('Cart is empty');
   const label=prompt('Name this held sale (e.g. customer name):','Customer');if(label===null)return;
   await api('/api/held',{method:'POST',body:{label,items:S.cart}});S.cart=[];drawCart();heldCount();toast('Sale parked')};
@@ -163,7 +166,7 @@ window.recall=async id=>{const h=await api('/api/held/'+id);S.cart=h.items;await
   closeM();drawCart();heldCount();toast('Recalled '+h.label)};
 window.delHeld=async id=>{await api('/api/held/'+id,{method:'DELETE'});closeM();listHeld();heldCount()};
 window.heldCount=async()=>{const hs=await api('/api/held');const b=document.getElementById('hbtn');if(b)b.textContent='Held'+(hs.length?' ('+hs.length+')':'')};
-window.doPay=async t=>{const r=await api('/api/checkout',{method:'POST',body:{items:S.cart,cash:+cash.value}});
+window.doPay=async t=>{const r=await api('/api/checkout',{method:'POST',body:{items:S.cart,cash:+cash.value,method:pm.value,customer_name:pcust.value||undefined,discount:+pdisc.value||0,promo_code:(ppromo.value||'').trim().toUpperCase()||undefined}});
   closeM();S.cart=[];pgPos();
   const rc=await api('/api/receipt/'+r.id);
   modal(`<h3>Receipt · ${r.invoice}</h3><div class="rc" id="rc">${rcHtml(rc)}</div>

@@ -509,15 +509,20 @@ def checkout():
             if p2["taxable"]:
                 vat += round(line * rate / (100 + rate), 2)  # VAT-inclusive pricing
         total = round(total, 2)
-        cash = round(float(d.get("cash", total)), 2)
-        if cash < total:
+        inv_disc = round(float(d.get("discount") or 0), 2)
+        eff = round(max(0.0, total - inv_disc), 2)
+        cash = round(float(d.get("cash", eff)), 2)
+        if cash < eff and d.get("method") != "credit":
             c.execute("ROLLBACK"); return jsonify({"error": "Insufficient cash"}), 400
         suid = str(uuid.uuid4())
         inv = next_receipt(c)
+        ur = c.execute("SELECT name FROM users WHERE id=?", (session["uid"],)).fetchone()
         c.execute("""INSERT INTO sales(invoice_no,total,cash,change_due,vat,discount,user_id,status,created,
-                     sale_uuid,business_id,branch_id) VALUES(?,?,?,?,?,?,?,'completed',?,?,?,?)""",
-                  (inv, total, cash, round(cash - total, 2), round(vat, 2), round(gross - total, 2), session["uid"],
-                   datetime.now().isoformat(timespec="seconds"), suid, DEFAULT_BUSINESS, DEFAULT_BRANCH))
+                     sale_uuid,business_id,branch_id,customer_name,cashier_name,promo_code)
+                     VALUES(?,?,?,?,?,?,?,'completed',?,?,?,?,?,?,?)""",
+                  (inv, eff, cash, round(cash - eff, 2), round(vat, 2), round(gross - eff, 2), session["uid"],
+                   datetime.now().isoformat(timespec="seconds"), suid, DEFAULT_BUSINESS, DEFAULT_BRANCH,
+                   d.get("customer_name"), ur["name"] if ur else None, d.get("promo_code")))
         sid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
         for i in items:
             c.execute("INSERT INTO sale_items(sale_id,product_id,name,price,qty,total) VALUES(?,?,?,?,?,?)",
@@ -527,18 +532,19 @@ def checkout():
         c.execute("INSERT INTO payments(sale_id,method,amount,created) VALUES(?,?,?,?)",
                   (sid, d.get("method", "cash"), cash, datetime.now().isoformat(timespec="seconds")))
         emit_event(c, "SALE_CREATED", suid,
-                   {"sale_uuid": suid, "invoice_no": inv, "total": total, "vat": round(vat, 2),
-                    "discount": round(gross - total, 2), "cash": cash, "items": [
+                   {"sale_uuid": suid, "invoice_no": inv, "total": eff, "vat": round(vat, 2),
+                    "discount": round(gross - eff, 2), "cash": cash, "method": d.get("method", "cash"),
+                    "customer_name": d.get("customer_name"), "promo_code": d.get("promo_code"), "items": [
                         {"product_id": i["id"], "product_uuid": str(uuid.uuid5(uuid.NAMESPACE_DNS, str(i["id"]))),
                          "name": i["name"], "qty": i["qty"], "total": i["line_total"]} for i in items]})
-        audit(c, "sale.completed", f"{inv} · {total}")
+        audit(c, "sale.completed", f"{inv} · {eff}")
         c.execute("COMMIT")
     except sqlite3.Error:
         try: c.execute("ROLLBACK")
         except sqlite3.Error: pass
         raise
     finally: c.close()
-    return jsonify({"ok": True, "invoice": inv, "total": total, "cash": cash, "change": round(cash - total, 2), "id": sid})
+    return jsonify({"ok": True, "invoice": inv, "total": eff, "cash": cash, "change": round(cash - total, 2), "id": sid})
 
 @app.get("/api/receipt/<int:sid>")
 @need_login
@@ -962,6 +968,11 @@ def shift_close():
     audit(c, "shift.closed", f"{d['device_name']} expected {expected} counted {count} diff {diff}")
     c.commit()
     return jsonify({"ok": True, "expected": expected, "counted": count, "difference": diff})
+
+@app.get("/api/customers")
+@need_login
+def customers_list():
+    return jsonify(rows(db(), "SELECT id,name,phone FROM customers ORDER BY name"))
 
 @app.route("/api/v1/customers", methods=["GET", "POST"])
 @need_device
