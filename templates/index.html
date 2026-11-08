@@ -352,7 +352,7 @@ async function pgUsers(){
   M.innerHTML=`<div class="top"><h1>Users</h1><button class="btn primary" onclick="uForm()">+ New user</button></div>
   <div class="card"><table><tr><th>Username</th><th>Name</th><th>Role</th><th></th></tr>
   ${us.map(u=>`<tr><td class="mono">${esc(u.username)}</td><td>${esc(u.name)}</td><td><span class="badge ${u.role==='admin'?'warn':'ok'}">${u.role}</span></td>
-  <td style="text-align:right"><button class="btn small" onclick="pwForm(${u.id},'${esc(u.username)}')">Password</button> <button class="btn small danger" onclick="udel(${u.id})">✕</button></td></tr>`).join('')}</table></div>
+  <td style="text-align:right"><button class="btn small" onclick="roleTog(${u.id},'${u.role==='admin'?'cashier':'admin'}')" title="Toggle role">⇄ ${u.role==='admin'?'cashier':'admin'}</button> <button class="btn small" onclick="pwForm(${u.id},'${esc(u.username)}')">Password</button> <button class="btn small danger" onclick="udel(${u.id})">✕</button></td></tr>`).join('')}</table></div>
   <div class="card section"><h2>Reset requests${rs.length?` <span class="badge warn">${rs.length}</span>`:''}</h2>
   ${rs.map(r=>`<div class="ci"><span class="nm">${esc(r.uname||r.username)} <span class="sub">· ${esc(r.name||'')}</span></span><span class="sub">${r.created.slice(5,16)}</span>
     <span><button class="btn small primary" onclick="appr(${r.id})">Approve</button> <button class="btn small" onclick="dism(${r.id})">Dismiss</button></span></div>`).join('')||'<p class="hint">No pending requests — when someone clicks "Forgot password" they appear here</p>'}</div>`;
@@ -367,6 +367,7 @@ window.uSave=async e=>{e.preventDefault();await api('/api/users',{method:'POST',
 window.udel=async id=>{if(confirm('Delete user?')){await api('/api/users/'+id,{method:'DELETE'});pgUsers()}};
 window.pwForm=(id,u)=>modal(`<h3>Reset password · ${u}</h3><form onsubmit="pwSave(event,${id})"><label>New password<input name="password" type="password" required></label><div class="row"><button type="button" class="btn" style="flex:1" onclick="closeM()">Cancel</button><button class="btn primary" style="flex:2">Save</button></div></form>`);
 window.pwSave=async(e,id)=>{e.preventDefault();await api(`/api/users/${id}/password`,{method:'POST',body:Object.fromEntries(new FormData(e.target))});closeM();toast('Password updated')};
+window.roleTog=async(id,role)=>{await api(`/api/users/${id}/role`,{method:'POST',body:{role}});toast(`Role changed to ${role}`);pgUsers()};
 
 
 /* ---------- Devices & sync ---------- */

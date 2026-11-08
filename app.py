@@ -668,6 +668,18 @@ def user_del(uid):
     audit(c, "user.deleted", u["username"] if u else str(uid))
     c.commit(); return jsonify({"ok": True})
 
+@app.post("/api/users/<int:uid>/role")
+@need_admin
+def user_role(uid):
+    role = (request.json or {}).get("role")
+    if role not in ("admin", "cashier"): return jsonify({"error": "bad role"}), 400
+    if uid == session.get("uid"): return jsonify({"error": "can't change your own role"}), 400
+    c = db()
+    if not c.execute("SELECT 1 FROM users WHERE id=?", (uid,)).fetchone(): return jsonify({"error": "not found"}), 404
+    c.execute("UPDATE users SET role=? WHERE id=?", (role, uid))
+    audit(c, "user.role_changed", f"user {uid} → {role}")
+    c.commit(); return jsonify({"ok": True})
+
 @app.post("/api/users/<int:uid>/password")
 @need_login
 def user_pw(uid):
