@@ -845,9 +845,9 @@ def apply_sale_event(c, dev, e):
     paid = f(p["paid_cents"]) if p.get("paid_cents") is not None else tot
     c.execute("""INSERT INTO sales(invoice_no,total,cash,change_due,vat,discount,user_id,status,created,
                  sale_uuid,business_id,branch_id,device_id,cashier_name,customer_name)
-                 VALUES(?,?,?,?,?,0,?,'completed',?,?,?,?,?,?,?)""",
+                 VALUES(?,?,?,?,?,?,?,'completed',?,?,?,?,?,?,?)""",
               (inv, tot, paid, round(max(0, paid - tot), 2),
-               f(p.get("tax_cents") or p.get("vat")), uid,
+               f(p.get("tax_cents") or p.get("vat")), f(p.get("discount_cents") or 0), uid,
                (e.get("device_created_at") or utcnow())[:19], suid, dev["business_id"], dev["branch_id"], dev["id"], cname,
                p.get("customer_name")))
     sid = c.execute("SELECT last_insert_rowid()").fetchone()[0]

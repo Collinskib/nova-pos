@@ -56,7 +56,7 @@ async function nextReceipt(d: any) {
 }
 
 // ---------- atomic checkout (spec §8) ----------
-export async function checkout(ctx: any, items: CartItem[], payments: { method: string; amount: number }[], customer?: string) {
+export async function checkout(ctx: any, items: CartItem[], payments: { method: string; amount: number }[], customer?: string, discCents = 0) {
   return tx(async d => {
     const id = uuid(), receipt = await nextReceipt(d);
     let sub = 0, tax = 0;
@@ -67,8 +67,11 @@ export async function checkout(ctx: any, items: CartItem[], payments: { method: 
       if (i.taxable) tax += Math.round(t * 0.16 / 1.16); // VAT-inclusive @16%
       return { product_id: i.id, name: i.name, qty: i.qty, unit_price_cents: i.price_cents, total_cents: t };
     });
+    const disc = Math.min(Math.max(0, discCents), sub);
+    const total = sub - disc;
+    tax = sub ? Math.round(tax * total / sub) : 0;              // discount scales the inclusive VAT
     const payCents = payments.reduce((a, p) => a + money(p.amount), 0);
-    if (payCents < sub && !payments.some(p => p.method === "credit")) throw new Error("Insufficient payment");
+    if (payCents < total && !payments.some(p => p.method === "credit")) throw new Error("Insufficient payment");
     // offline stock policy: refuse silently-negative stock (spec §9)
     for (const i of items) {
       const p = await one<{ stock: number }>(d, "SELECT stock FROM products WHERE id=?", [i.id]);
@@ -77,7 +80,7 @@ export async function checkout(ctx: any, items: CartItem[], payments: { method: 
     try { await run(d, "ALTER TABLE sales ADD COLUMN customer_name TEXT"); } catch {}
     await run(d, `INSERT INTO sales(id,receipt_no,business_id,branch_id,device_id,subtotal_cents,
       discount_cents,tax_cents,total_cents,created_at,cashier_name,customer_name) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [id, receipt, ctx.business, ctx.branch, ctx.device, sub, 0, tax, sub, now(), ctx.cashier_name || null, customer || null]);
+      [id, receipt, ctx.business, ctx.branch, ctx.device, sub, disc, tax, total, now(), ctx.cashier_name || null, customer || null]);
     for (const l of lines) {
       await run(d, `INSERT INTO sale_items(id,sale_id,product_id,name,qty,unit_price_cents,total_cents)
         VALUES(?,?,?,?,?,?,?)`, [uuid(), id, l.product_id, l.name, l.qty, l.unit_price_cents, l.total_cents]);
@@ -95,10 +98,10 @@ export async function checkout(ctx: any, items: CartItem[], payments: { method: 
         [uuid(), id, p.method, a, now()]);
     }
     const event_id = await emit(d, ctx, "SALE_CREATED", id,
-      { sale_id: id, receipt_no: receipt, total_cents: sub, tax_cents: tax, items: lines,
+      { sale_id: id, receipt_no: receipt, total_cents: total, tax_cents: tax, discount_cents: disc, items: lines,
         paid_cents: payCents, payments: payments.map(p => ({ method: p.method, amount_cents: money(p.amount) })),
         cashier_name: ctx.cashier_name || null, customer_name: customer || null });
-    return { id, receipt_no: receipt, total_cents: sub, event_id };
+    return { id, receipt_no: receipt, total_cents: total, event_id };
   });
 }
 
