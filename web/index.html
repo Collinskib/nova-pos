@@ -4,11 +4,11 @@
 <meta name="description" content="ShujaaPOS is an offline-first point-of-sale for Kenyan retail — dukas, minimarts, supermarkets, pharmacies. Sell without internet, sync to the cloud, manage branches, inventory and staff.">
 <link rel="icon" href="/icon.png">
 <style>
-:root{--bg:#0d0a1f;--card:#191333;--card2:#221b45;--acc:#7c4de8;--acc2:#a78bfa;--ok:#3ecf8e;--warn:#e0a53f;--bad:#e05a5a;--mut:#9a93c2;--txt:#f0eeff;--line:#2e2657;--line2:#3a3069}
+:root{--bg:#faf8f4;--card:#ffffff;--card2:#f4f1fb;--acc:#7c4de8;--acc2:#6a3cd8;--ok:#1e9e66;--warn:#b07d10;--bad:#d04040;--mut:#6e6884;--txt:#1c1633;--line:#e6e0f2;--line2:#d4cbe8}
 *{box-sizing:border-box;font-family:system-ui,-apple-system,sans-serif;margin:0}
 html{scroll-behavior:smooth}
 body{background:var(--bg);color:var(--txt)}
-nav{display:flex;justify-content:space-between;align-items:center;padding:18px min(6vw,80px);position:sticky;top:0;background:rgba(13,10,31,.85);backdrop-filter:blur(10px);z-index:10}
+nav{display:flex;justify-content:space-between;align-items:center;padding:18px min(6vw,80px);position:sticky;top:0;background:rgba(250,248,244,.85);backdrop-filter:blur(10px);z-index:10}
 nav b{font-size:20px}.brand{color:var(--acc2)}
 nav .links a{color:var(--mut);text-decoration:none;margin-left:22px;font-size:14px;font-weight:600}
 nav .links a:hover{color:var(--txt)}
@@ -27,7 +27,7 @@ nav a.cta{background:var(--acc);color:#fff;padding:10px 18px;border-radius:10px;
 .trial{margin-top:16px;color:var(--mut);font-size:13px}
 .trial a{color:var(--acc2)}
 /* hero mock */
-.mock{background:linear-gradient(160deg,#1e1840,#140f30);border:1px solid var(--line);border-radius:22px;padding:24px;box-shadow:0 30px 70px rgba(0,0,0,.45)}
+.mock{background:linear-gradient(160deg,#f6f2fd,#efe9fb);border:1px solid var(--line);border-radius:22px;padding:24px;box-shadow:0 24px 60px rgba(60,40,110,.14)}
 .mock .row{display:flex;gap:10px;margin-bottom:14px}
 .mk{flex:1;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px}
 .mk .k{font-size:10.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.7px;font-weight:700}
@@ -41,7 +41,7 @@ nav a.cta{background:var(--acc);color:#fff;padding:10px 18px;border-radius:10px;
 .mtotal{display:flex;justify-content:space-between;padding:12px 2px 0;border-top:1px solid var(--line);font-size:14px}
 .mtotal b{font-size:19px;font-weight:800}
 .mcharge{margin-top:12px;background:var(--acc);color:#fff;text-align:center;border-radius:10px;padding:12px;font-weight:700;font-size:14px}
-.queue-note{margin-top:12px;font-size:12px;color:var(--warn);background:#3d2f1422;border:1px dashed #6b5424;border-radius:9px;padding:9px 12px}
+.queue-note{margin-top:12px;font-size:12px;color:var(--warn);background:#fbf3dc22;border:1px dashed #d9b64f;border-radius:9px;padding:9px 12px}
 /* sections */
 section{padding:64px min(6vw,80px);max-width:1200px;margin:0 auto}
 .sec-k{font-size:12.5px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--acc2);margin-bottom:14px}
@@ -50,13 +50,13 @@ h2{font-size:clamp(26px,3.4vw,38px);letter-spacing:-1px;font-weight:800;line-hei
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
 .f{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:24px;transition:border-color .2s,transform .2s}
 .f:hover{border-color:var(--acc);transform:translateY(-2px)}
-.f .mini{background:#12102a;border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:16px;font-size:12.5px}
+.f .mini{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:16px;font-size:12.5px}
 .f h3{font-size:17px;margin-bottom:8px;letter-spacing:-.3px}
 .f p{color:var(--mut);font-size:14px;line-height:1.55}
 .mini .li2{display:flex;justify-content:space-between;padding:4px 0;color:var(--mut)}
 .mini .li2 b{color:var(--txt);font-weight:600}
-.tag{display:inline-block;padding:2px 9px;border-radius:999px;font-size:10.5px;font-weight:700;background:#14352a;color:var(--ok)}
-.tag.bad{background:#3d1a2a;color:var(--bad)}.tag.warn{background:#3d2f14;color:var(--warn)}
+.tag{display:inline-block;padding:2px 9px;border-radius:999px;font-size:10.5px;font-weight:700;background:#e2f4ea;color:var(--ok)}
+.tag.bad{background:#fbe9ea;color:var(--bad)}.tag.warn{background:#fbf3dc;color:var(--warn)}
 .bar{height:7px;border-radius:99px;background:var(--line);margin-top:8px;overflow:hidden}
 .bar i{display:block;height:100%;background:var(--ok);border-radius:99px}
 /* offline steps */
