@@ -24,6 +24,7 @@ img{max-width:100%;border-radius:12px;margin:16px 0}
 footer{border-top:1px solid var(--line);padding:26px;text-align:center;color:var(--mut);font-size:13px}</style></head><body><nav><b><a href="/" style="color:var(--txt);margin:0;text-decoration:none"><span class="brand">Shujaa</span>POS</a></b><div><a href="/blog">Blog</a><a href="/app" class="cta">Open the app</a></div></nav><main><h1>Split Payments: Cash, M-Pesa and Card on One Sale</h1>
 <p class="date">ShujaaPOS · November 2026 · 4 min read</p>
 <p>A customer owes KSh 850. They have KSh 500 in cash and the rest on M-Pesa. This happens dozens of times a day in a Kenyan shop, and it's where end-of-day maths quietly goes wrong if your till records one payment method per sale.</p>
+<img src="img/sales-payments.png" alt="The sales list in ShujaaPOS showing which payment method was used on each receipt">
 <h2>Why single-method recording breaks</h2>
 <p>If that KSh 850 sale goes down as "cash" only, your cash count is short by 350 at close. If it goes down as "M-Pesa", your M-Pesa statement won't match the ledger. Either way you're reconciling phantom gaps at 9pm.</p>
 <h2>The correct habit</h2>
