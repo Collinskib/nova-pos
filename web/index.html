@@ -2,51 +2,238 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ShujaaPOS — Offline-first POS for Kenyan shops</title>
 <meta name="description" content="ShujaaPOS is an offline-first point-of-sale for Kenyan retail — dukas, minimarts, supermarkets, pharmacies. Sell without internet, sync to the cloud, manage branches, inventory and staff.">
+<link rel="icon" href="/icon.png">
 <style>
-:root{--bg:#0d0a1f;--card:#1e1840;--acc:#8b5cf6;--ok:#3ecf8e;--mut:#9a93c2;--txt:#f0eeff;--line:#2e2657}
+:root{--bg:#0d0a1f;--card:#191333;--card2:#221b45;--acc:#7c4de8;--acc2:#a78bfa;--ok:#3ecf8e;--warn:#e0a53f;--bad:#e05a5a;--mut:#9a93c2;--txt:#f0eeff;--line:#2e2657;--line2:#3a3069}
 *{box-sizing:border-box;font-family:system-ui,-apple-system,sans-serif;margin:0}
+html{scroll-behavior:smooth}
 body{background:var(--bg);color:var(--txt)}
-nav{display:flex;justify-content:space-between;align-items:center;padding:20px min(6vw,80px);position:sticky;top:0;background:rgba(13,10,31,.85);backdrop-filter:blur(10px)}
-nav b{font-size:20px}.brand{color:var(--acc)}
-nav a{color:var(--mut);text-decoration:none;margin-left:24px;font-size:14px;font-weight:600}
-nav a.cta{background:var(--acc);color:#fff;padding:10px 18px;border-radius:9px}
-.hero{text-align:center;padding:90px 20px 70px;max-width:820px;margin:0 auto}
-.hero h1{font-size:clamp(32px,5.5vw,54px);line-height:1.1;letter-spacing:-.5px}
-.hero p{color:var(--mut);font-size:18px;margin:22px auto 34px;max-width:560px}
-.btn{display:inline-block;background:var(--acc);color:#fff;text-decoration:none;padding:15px 32px;border-radius:11px;font-weight:700;font-size:16px}
-.btn.ghost{background:transparent;border:1px solid #3d3472;margin-left:12px}
-.badges{margin-top:26px;color:var(--mut);font-size:13px}
-.badges span{margin:0 10px}
-.feat{max-width:1100px;margin:0 auto;padding:50px 20px;display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}
-.f{background:var(--card);border-radius:16px;padding:24px}
-.f h3{font-size:17px;margin-bottom:8px}
+nav{display:flex;justify-content:space-between;align-items:center;padding:18px min(6vw,80px);position:sticky;top:0;background:rgba(13,10,31,.85);backdrop-filter:blur(10px);z-index:10}
+nav b{font-size:20px}.brand{color:var(--acc2)}
+nav .links a{color:var(--mut);text-decoration:none;margin-left:22px;font-size:14px;font-weight:600}
+nav .links a:hover{color:var(--txt)}
+nav a.cta{background:var(--acc);color:#fff;padding:10px 18px;border-radius:10px;font-size:14px;font-weight:700;text-decoration:none;margin-left:22px}
+.hero{display:grid;grid-template-columns:1.05fr .95fr;gap:48px;align-items:center;padding:80px min(6vw,80px) 60px;max-width:1200px;margin:0 auto}
+.eyebrow{font-size:12.5px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--acc2);margin-bottom:18px}
+.hero h1{font-size:clamp(36px,5.5vw,58px);line-height:1.04;letter-spacing:-1.5px;font-weight:800}
+.hero h1 em{font-style:normal;color:var(--acc2)}
+.hero .lede{color:var(--mut);font-size:17.5px;line-height:1.6;margin:22px 0 26px;max-width:30rem}
+.bullets{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:30px}
+.bullets span{border:1px solid var(--line2);border-radius:999px;padding:7px 14px;font-size:13px;font-weight:600;color:var(--mut)}
+.bullets span b{color:var(--ok);font-weight:700;margin-right:5px}
+.ctas{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.btn{display:inline-block;background:var(--acc);color:#fff;text-decoration:none;padding:15px 28px;border-radius:11px;font-weight:700;font-size:15.5px}
+.btn.ghost{background:transparent;border:1px solid var(--line2);color:var(--txt)}
+.trial{margin-top:16px;color:var(--mut);font-size:13px}
+.trial a{color:var(--acc2)}
+/* hero mock */
+.mock{background:linear-gradient(160deg,#1e1840,#140f30);border:1px solid var(--line);border-radius:22px;padding:24px;box-shadow:0 30px 70px rgba(0,0,0,.45)}
+.mock .row{display:flex;gap:10px;margin-bottom:14px}
+.mk{flex:1;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px}
+.mk .k{font-size:10.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.7px;font-weight:700}
+.mk .v{font-size:20px;font-weight:800;letter-spacing:-.5px;margin-top:4px}
+.mk .v.g{color:var(--ok)}
+.mline{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:11px 14px;font-size:13px;margin-top:8px}
+.mline .amt{margin-left:auto;font-weight:700}
+.mchips{display:flex;gap:6px;margin:14px 0 10px}
+.mchip{padding:8px 14px;border-radius:9px;border:1px solid var(--line2);font-size:12.5px;font-weight:600;color:var(--mut)}
+.mchip.on{background:var(--acc);border-color:var(--acc);color:#fff}
+.mtotal{display:flex;justify-content:space-between;padding:12px 2px 0;border-top:1px solid var(--line);font-size:14px}
+.mtotal b{font-size:19px;font-weight:800}
+.mcharge{margin-top:12px;background:var(--acc);color:#fff;text-align:center;border-radius:10px;padding:12px;font-weight:700;font-size:14px}
+.queue-note{margin-top:12px;font-size:12px;color:var(--warn);background:#3d2f1422;border:1px dashed #6b5424;border-radius:9px;padding:9px 12px}
+/* sections */
+section{padding:64px min(6vw,80px);max-width:1200px;margin:0 auto}
+.sec-k{font-size:12.5px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--acc2);margin-bottom:14px}
+h2{font-size:clamp(26px,3.4vw,38px);letter-spacing:-1px;font-weight:800;line-height:1.15}
+.sec-sub{color:var(--mut);font-size:16px;line-height:1.6;margin:14px 0 34px;max-width:34rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.f{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:24px;transition:border-color .2s,transform .2s}
+.f:hover{border-color:var(--acc);transform:translateY(-2px)}
+.f .mini{background:#12102a;border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:16px;font-size:12.5px}
+.f h3{font-size:17px;margin-bottom:8px;letter-spacing:-.3px}
 .f p{color:var(--mut);font-size:14px;line-height:1.55}
-.cta2{text-align:center;padding:70px 20px 90px}
-.cta2 h2{font-size:30px;margin-bottom:14px}
+.mini .li2{display:flex;justify-content:space-between;padding:4px 0;color:var(--mut)}
+.mini .li2 b{color:var(--txt);font-weight:600}
+.tag{display:inline-block;padding:2px 9px;border-radius:999px;font-size:10.5px;font-weight:700;background:#14352a;color:var(--ok)}
+.tag.bad{background:#3d1a2a;color:var(--bad)}.tag.warn{background:#3d2f14;color:var(--warn)}
+.bar{height:7px;border-radius:99px;background:var(--line);margin-top:8px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--ok);border-radius:99px}
+/* offline steps */
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin-top:34px}
+.step1{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px}
+.step1 .n{width:30px;height:30px;border-radius:50%;background:var(--acc);color:#fff;display:grid;place-items:center;font-weight:800;font-size:14px;margin-bottom:12px}
+.step1 h3{font-size:16px;margin-bottom:8px}
+.step1 p{color:var(--mut);font-size:13.5px;line-height:1.55}
+.honest{margin-top:20px;font-size:13px;color:var(--mut);border:1px dashed var(--line2);border-radius:11px;padding:12px 16px}
+.honest b{color:var(--txt)}
+/* reports */
+.repgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-top:8px}
+.rep{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+.rep .rk{font-size:10.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.6px;font-weight:700}
+.rep .rv{font-size:19px;font-weight:800;margin-top:5px;letter-spacing:-.4px}
+/* browser/apps */
+.apps{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-top:30px}
+.appc{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:26px}
+.appc h3{font-size:17px;margin-bottom:8px}
+.appc p{color:var(--mut);font-size:14px;line-height:1.55;margin-bottom:18px}
+/* faq */
+.faq details{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:0 20px;margin-bottom:10px}
+.faq summary{cursor:pointer;font-weight:700;font-size:15px;padding:18px 0;list-style:none}
+.faq summary::after{content:"+";float:right;color:var(--acc2);font-size:18px}
+.faq details[open] summary::after{content:"−"}
+.faq details p{color:var(--mut);font-size:14px;line-height:1.65;padding:0 0 18px}
+/* cta + footer */
+.cta2{text-align:center;padding:80px 20px}
+.cta2 h2{margin-bottom:12px}
 .cta2 p{color:var(--mut);margin-bottom:28px}
-footer{border-top:1px solid var(--line);padding:26px;text-align:center;color:var(--mut);font-size:13px}
+.howto{display:flex;justify-content:center;gap:26px;flex-wrap:wrap;margin-top:44px;color:var(--mut);font-size:13.5px}
+.howto b{color:var(--acc2);margin-right:6px}
+footer{border-top:1px solid var(--line);padding:40px min(6vw,80px) 30px;display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:24px;max-width:1200px;margin:0 auto}
+footer h4{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.6px;margin-bottom:12px}
+footer a{display:block;color:var(--mut);text-decoration:none;font-size:13.5px;margin-bottom:8px}
+footer a:hover{color:var(--txt)}
+footer .tagline{color:var(--mut);font-size:13.5px;line-height:1.6;max-width:22rem}
+.copy{grid-column:1/-1;border-top:1px solid var(--line);padding-top:20px;color:var(--mut);font-size:12.5px}
+@media(max-width:860px){
+  .hero{grid-template-columns:1fr;gap:36px;padding-top:56px}
+  nav .links{display:none}
+  footer{grid-template-columns:1fr 1fr}
+}
 </style></head>
 <body>
+
 <nav><b><span class="brand">Shujaa</span>POS</b>
-  <div><a href="/blog">Blog</a><a href="/app" class="cta">Open the app</a></div></nav>
+  <div><span class="links"><a href="#features">Features</a><a href="#offline">Offline</a><a href="#reports">Reports</a><a href="#faq">FAQ</a><a href="/blog/">Blog</a><a href="/app">Sign in</a></span>
+  <a class="cta" href="/app">Open the till</a></div></nav>
+
 <header class="hero">
-  <h1>Your till shouldn't stop<br>when the internet does.</h1>
-  <p>ShujaaPOS is an offline-first point-of-sale built for Kenyan retail. Sell on the counter, on the floor, on your phone — everything syncs when you're back online.</p>
-  <a class="btn" href="/app">Start selling free</a><a class="btn ghost" href="/blog">Read the guides</a>
-  <div class="badges"><span>✓ Works offline</span><span>✓ M-Pesa & split payments</span><span>✓ Multi-branch</span></div>
+  <div>
+    <div class="eyebrow">Built for Kenyan shops · works anywhere</div>
+    <h1>Record every sale,<br><em>even offline.</em></h1>
+    <p class="lede">A point-of-sale for dukas, minimarts and pharmacies. Track sales, stock, who owes you and your profit — on the counter, the phone, or the browser.</p>
+    <div class="bullets"><span><b>✓</b>Offline-first till</span><span><b>✓</b>Cash, M-Pesa &amp; credit</span><span><b>✓</b>KSh</span><span><b>✓</b>Multi-branch</span></div>
+    <div class="ctas"><a class="btn" href="/app">Open the web till</a>
+      <a class="btn ghost" href="https://github.com/Collinskib/nova-pos/releases/latest">Get the apps</a></div>
+    <p class="trial">Desktop, Android &amp; browser · <a href="/app">start selling in your browser →</a></p>
+  </div>
+  <div class="mock" aria-hidden="true">
+    <div class="row">
+      <div class="mk"><div class="k">Today's sales</div><div class="v">KSh 6,890</div></div>
+      <div class="mk"><div class="k">Orders</div><div class="v">14</div></div>
+      <div class="mk"><div class="k">Low stock</div><div class="v" style="color:var(--warn)">3</div></div>
+    </div>
+    <div class="mline"><span>×2 Unga wa Ngano 2kg</span><span class="amt">KSh 440</span></div>
+    <div class="mline"><span>×1 Brookside Milk 500ml</span><span class="amt">KSh 65</span></div>
+    <div class="mchips"><span class="mchip on">cash</span><span class="mchip">mpesa</span><span class="mchip">card</span><span class="mchip">credit</span></div>
+    <div class="mtotal"><span class="mut">Total</span><b>KSh 505</b></div>
+    <div class="mcharge">Charge KSh 505</div>
+    <div class="queue-note">Offline · 3 sales waiting to send</div>
+  </div>
 </header>
-<section class="feat">
-  <div class="f"><h3>⚡ Offline-first till</h3><p>Every sale is recorded locally and synced later. Power cuts, fibre cuts, bundle expiry — business doesn't stop.</p></div>
-  <div class="f"><h3>📱 Mobile + desktop</h3><p>Sell from the Android app or any computer. Devices pair to the hub over Wi-Fi in seconds.</p></div>
-  <div class="f"><h3>📦 Real inventory</h3><p>Stock levels, low-stock alerts, batch and expiry tracking, suppliers and stocktakes — not a spreadsheet.</p></div>
-  <div class="f"><h3>🏬 Multi-branch, multi-staff</h3><p>Branches, roles, till shifts with cash reconciliation, and a cloud dashboard across all of it.</p></div>
-  <div class="f"><h3>🧾 Payments that fit</h3><p>Cash, M-Pesa, card, credit sales and split payments — with proper change and reconciliation.</p></div>
-  <div class="f"><h3>📊 Reports that decide</h3><p>Daily sales, top sellers, VAT breakdown and shift summaries — on the web, on the till.</p></div>
+
+<section id="features">
+  <div class="sec-k">Features</div>
+  <h2>Everything your shop needs, nothing it doesn't</h2>
+  <p class="sec-sub">Record sales, keep an eye on stock, know who owes you, and see what you actually made — from the till, the phone or the browser.</p>
+  <div class="grid">
+    <div class="f"><div class="mini">
+      <div class="li2"><span>×2 Maize flour 2kg</span><b>KSh 440</b></div>
+      <div class="li2"><span>×1 Tea leaves 250g</span><b>KSh 180</b></div>
+      <div class="mchips" style="margin:10px 0 6px"><span class="mchip on">cash</span><span class="mchip">mpesa</span><span class="mchip">credit</span></div>
+      <div class="li2"><span>Total</span><b>KSh 620</b></div></div>
+      <h3>Sell in seconds</h3><p>Tap products or scan a barcode, pick how they paid, done. Park a sale mid-queue and recall it when the customer comes back.</p></div>
+    <div class="f"><div class="mini">
+      <div class="li2"><span>Cooking oil 1L</span><span><b>2 left</b> <span class="tag bad">low</span></span></div>
+      <div class="li2"><span>Mumias sugar 1kg</span><span><b>8 left</b> <span class="tag warn">reorder</span></span></div>
+      <div class="li2"><span>Unga 2kg</span><span><b>42 left</b> <span class="tag">ok</span></span></div></div>
+      <h3>Stock that warns you</h3><p>Every product tile shows what's left; anything at 10 or fewer flags red before customers ask for it.</p></div>
+    <div class="f"><div class="mini">
+      <div class="li2"><span>Mama Njoroge</span><b>KSh 1,200 owed</b></div>
+      <div class="bar"><i style="width:40%"></i></div>
+      <div class="li2" style="margin-top:6px"><span class="mut">Paid KSh 800 of 2,000</span></div></div>
+      <h3>Customers who owe you</h3><p>Sell on credit with the customer's name on the sale, so the debt is on record — not in a notebook.</p></div>
+    <div class="f"><div class="mini">
+      <div class="li2"><span>Revenue</span><b>KSh 18,450</b></div>
+      <div class="li2"><span>Discounts</span><b>− KSh 450</b></div>
+      <div class="li2"><span>VAT</span><b>KSh 2,345</b></div></div>
+      <h3>Reports that answer "did I make money?"</h3><p>One screen per day: revenue, orders, VAT, payment split and your top-selling items — per branch.</p></div>
+    <div class="f"><div class="mini">
+      <div class="li2"><span>Winnie</span><span class="tag warn">admin</span></div>
+      <div class="li2"><span>Kamau</span><span class="tag">cashier</span></div>
+      <div class="li2"><span>Achieng</span><span class="tag">manager</span></div></div>
+      <h3>Your team, your rules</h3><p>Create logins for staff, pick who sells and who runs the shop. Only admins void sales or change prices.</p></div>
+    <div class="f"><div class="mini">
+      <div class="li2"><span>Main — Moi Avenue</span><b>KSh 4,350 today</b></div>
+      <div class="li2"><span>Westlands</span><b>KSh 2,540 today</b></div></div>
+      <h3>Many branches, one account</h3><p>Each branch keeps its own stock and sales; you see all of them from one dashboard.</p></div>
+  </div>
 </section>
-<section class="cta2"><h2>Built for the way Kenyan shops actually run.</h2>
-  <p>Free to start. Works offline. Syncs when it can.</p>
-  <a class="btn" href="/app">Create your store</a></section>
-<footer>ShujaaPOS · Offline-first point-of-sale · Nairobi, Kenya</footer>
-<script>window.va=window.va||function(){(window.vaq=window.vaq||[]).push(arguments)};</script>
-<script defer src="/_vercel/speed-insights/script.js"></script>
+
+<section id="offline">
+  <div class="sec-k">Works offline</div>
+  <h2>No signal? Keep selling.</h2>
+  <p class="sec-sub">Power cuts and patchy data shouldn't stop the till. ShujaaPOS saves every sale first and sends it when you're back online.</p>
+  <div class="steps">
+    <div class="step1"><div class="n">1</div><h3>The signal drops</h3><p>Keep selling. The sale screen just says "Saved offline — queued." Nothing stops.</p></div>
+    <div class="step1"><div class="n">2</div><h3>Sales wait to send</h3><p>A badge over the header counts what's queued: "Offline · 3 sales waiting to send."</p></div>
+    <div class="step1"><div class="n">3</div><h3>Back online, all sent</h3><p>The queue sends itself — safely, so no sale books twice. Every device sees the same records.</p></div>
+  </div>
+  <p class="honest"><b>Needs a connection:</b> reports, adding staff, and history before you first synced. A sale can never book twice — each one carries its own reference.</p>
+</section>
+
+<section id="reports">
+  <div class="sec-k">Reports</div>
+  <h2>Know how the shop is really doing</h2>
+  <p class="sec-sub">Pick a day, pick a branch. Revenue, orders, VAT, discounts, the payment-method split and the items that moved — plus receipts you can void (admin) with stock returned automatically.</p>
+  <div class="repgrid">
+    <div class="rep"><div class="rk">Revenue</div><div class="rv">KSh 18,450</div></div>
+    <div class="rep"><div class="rk">Orders</div><div class="rv">46</div></div>
+    <div class="rep"><div class="rk">M-Pesa</div><div class="rv">KSh 9,800</div></div>
+    <div class="rep"><div class="rk">Cash</div><div class="rv">KSh 6,150</div></div>
+    <div class="rep"><div class="rk">Credit</div><div class="rv" style="color:var(--warn)">KSh 2,500</div></div>
+    <div class="rep"><div class="rk">Top item</div><div class="rv" style="font-size:15px;padding-top:7px">Unga 2kg ×18</div></div>
+  </div>
+  <p class="sec-sub" style="margin-top:22px">On the desktop hub: printable daily reports, CSV export for your accountant or Drive, sales feed from every device.</p>
+</section>
+
+<section id="apps">
+  <div class="sec-k">Everywhere you sell</div>
+  <h2>The same shop on every screen</h2>
+  <div class="apps">
+    <div class="appc"><h3>In the browser</h3><p>Sign in and sell — nothing to install. Works on any computer or phone with internet; sales queue when it drops.</p>
+      <a class="btn" href="/app">Open shop →</a></div>
+    <div class="appc"><h3>Desktop &amp; Android</h3><p>Full offline till with held sales, voids, receipt printing, barcode camera scan and device pairing — it syncs to this same dashboard.</p>
+      <a class="btn ghost" href="https://github.com/Collinskib/nova-pos/releases/latest">Download the apps</a></div>
+  </div>
+</section>
+
+<section id="faq" class="faq">
+  <div class="sec-k">FAQ</div>
+  <h2>Questions shop owners ask</h2>
+  <div style="margin-top:26px">
+    <details><summary>Does it really work without internet?</summary><p>Yes. The desktop till works fully offline — sales, stock, receipts. The web till caches itself and queues sales when the signal drops, then sends them the moment you're back.</p></details>
+    <details><summary>Does it take M-Pesa?</summary><p>You record how each customer paid — cash, M-Pesa, card or credit — and reports split the day by method. Automatic STK push is on the roadmap.</p></details>
+    <details><summary>Can I bring in the products I already sell?</summary><p>Yes. Add them one by one in the app, or on the desktop hub import a whole price list from CSV, JSON or Excel — barcodes, prices, stock and all.</p></details>
+    <details><summary>Can I choose what each staff member sees?</summary><p>Yes. Create a login per person with a role — cashier, manager or admin. Only admins void sales, change prices and manage the team.</p></details>
+    <details><summary>Can I sell on credit?</summary><p>Yes. A credit sale asks for the customer's name, so who owes you — and how much — is on record instead of in a notebook.</p></details>
+    <details><summary>How many branches does it handle?</summary><p>As many as you open. Each branch keeps its own stock, sales and devices; you watch all of them from one dashboard and switch between them on the till.</p></details>
+  </div>
+</section>
+
+<section class="cta2">
+  <h2>Record your first sale today</h2>
+  <p>Open the till in your browser — no install, no card.</p>
+  <a class="btn" href="/app">Open ShujaaPOS</a>
+  <div class="howto"><span><b>1</b>Create your shop</span><span><b>2</b>Add your products</span><span><b>3</b>Record a sale</span></div>
+</section>
+
+<footer>
+  <div><p class="tagline"><b style="color:var(--txt)"><span class="brand">Shujaa</span>POS</b><br><br>Point of sale for small shops. Built for Kenya — sells offline, syncs to the cloud.</p></div>
+  <div><h4>Product</h4><a href="#features">Features</a><a href="#offline">Works offline</a><a href="#reports">Reports</a><a href="/app">Sign in</a></div>
+  <div><h4>Learn</h4><a href="/blog/pos-loses-internet.html">POS without internet</a><a href="/blog/offline-pos-explained.html">Offline-first, explained</a><a href="/blog/manage-stock-retail-shop-kenya.html">Manage stock</a><a href="/blog/split-payments-mpesa-card.html">Split payments</a></div>
+  <div><h4>Get it</h4><a href="/app">Web till</a><a href="https://github.com/Collinskib/nova-pos/releases/latest">Desktop app</a><a href="https://github.com/Collinskib/nova-pos/releases/latest">Android APK</a></div>
+  <div class="copy">© 2026 ShujaaPOS · Sell anywhere — offline till, cloud dashboard.</div>
+</footer>
+
 </body></html>
