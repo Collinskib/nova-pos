@@ -161,6 +161,17 @@ tr:last-child td{border:0}
 }
 .deal{font-size:11px;color:var(--ok);font-weight:600;margin-top:6px}
 
+/* mobile charge bar — thumb-reachable checkout on small screens */
+.mbar{display:none}
+@media(max-width:860px){
+  .mbar{position:fixed;left:12px;right:12px;bottom:12px;z-index:8;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px 14px;align-items:center;justify-content:space-between;gap:10px;box-shadow:0 12px 30px var(--shadow);font-size:14px}
+  .mbar.show{display:flex}
+}
+@media(pointer:coarse){
+  .ci .q button{min-width:32px;height:32px}
+  .tb-btn{min-width:42px;min-height:42px}
+}
+
 [data-theme=light] .auth{background:radial-gradient(1000px 600px at 70% -10%,#dfe6f8,var(--bg))}
 [data-theme=light] .modal>div{background:var(--panel)}
 [data-theme=light] .rc{background:#fff;color:#111}

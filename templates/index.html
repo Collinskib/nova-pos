@@ -55,7 +55,9 @@ window.renameShop=()=>modal(`<h3>Shop name</h3><form onsubmit="renameSave(event)
 window.renameSave=async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target));
   await api('/api/settings',{method:'PUT',body:d});S.boot.settings.store_name=d.store_name;store.textContent=d.store_name;
   closeM();toast('Shop renamed to '+d.store_name)};
-document.querySelectorAll('nav a[data-s]').forEach(a=>a.onclick=()=>{document.querySelectorAll('nav a').forEach(x=>x.classList.remove('on'));a.classList.add('on');history.replaceState(null,"","#"+a.dataset.s);clearInterval(window._poll);window._poll=null;NAV[a.dataset.s]()});
+document.querySelectorAll('nav a[data-s]').forEach(a=>{a.tabIndex=0;a.onclick=()=>{document.querySelectorAll('nav a').forEach(x=>x.classList.remove('on'));a.classList.add('on');history.replaceState(null,"","#"+a.dataset.s);clearInterval(window._poll);window._poll=null;NAV[a.dataset.s]()}});
+addEventListener('keydown',e=>{const t=e.target;if(e.key==='Enter'&&t.matches&&t.matches('nav a[data-s],a.viewall')){e.preventDefault();t.click()}});
+window.confirmM=(msg,fn)=>{window._cf=fn;modal(`<h3>Are you sure?</h3><p class="sub" style="margin-bottom:14px">${esc(msg)}</p><div class="row"><button class="btn" style="flex:1" onclick="closeM()">Cancel</button><button class="btn primary" style="flex:2" onclick="closeM();window._cf()">Confirm</button></div>`)};
 window.go=s=>document.querySelector(`nav a[data-s="${s}"]`).click();
 const tgl=document.getElementById('themeTgl');
 const themeLbl=()=>{const d=document.documentElement.dataset.theme==='dark';tgl.querySelector('.sw').classList.toggle('on',d);tgl.querySelector('span').textContent=d?'Light mode':'Dark mode'};
@@ -133,7 +135,8 @@ async function pgPos(){
     <div class="total"><span>Total</span><b id="ct">KSh 0.00</b></div><p class="sub" id="cvat" style="margin:-8px 0 10px"></p>
     <div class="row"><button class="btn" onclick="parkSale()">Park</button><button class="btn" id="hbtn" onclick="listHeld()">Held</button>
     <button class="btn" onclick="S.cart=[];drawCart()">Clear</button>
-    <button class="btn primary" style="flex:2" onclick="pay()">Charge</button></div></div></div>`;
+    <button class="btn primary" style="flex:2" onclick="pay()">Charge</button></div></div></div>
+  <div class="mbar" id="mbar"><b id="mbt"></b><button class="btn primary" style="padding:9px 20px" onclick="pay()">Charge</button></div>`;
   const load=async()=>{S.products=await api('/api/lookup?q='+encodeURIComponent(ps.value));
     pg.innerHTML=S.products.filter(p=>!p.parent_id).map(p=>`<button class="pitem" onclick="pick(${p.id})">${p.image?`<img class="pimg" src="${esc(p.image)}" loading="lazy" onerror="this.remove()">`:'<div class="pimg ph">📦</div>'}<div class="nm">${esc(p.name)}</div><div class="pr">${money(pp(p))}</div><div class="st ${p.stock<=10?'low':''}">${p.stock} in stock${p.barcode?' · '+esc(p.barcode):''}</div>${p.discount_qty>0?`<div class="deal">Buy ${p.discount_qty}+ save ${p.discount_pct}%</div>`:''}</button>`).join('')||'<p class="hint">No products match</p>'};
   window.loadPos=load; ps.oninput=load; ps.onkeydown=e=>{if(e.key==='Enter'&&S.products[0]){addItem(S.products[0].id);ps.value='';load()}};
@@ -162,7 +165,9 @@ const totOf=()=>S.cart.reduce((a,i)=>a+lineOf(i),0);
 const vatOf=()=>{const r=+(S.boot.settings.tax_rate||0);return S.cart.reduce((a,i)=>a+(i.taxable?lineOf(i)*r/(100+r):0),0)};
 window.drawCart=()=>{ci.innerHTML=S.cart.map((i,x)=>`<div class="ci"><span class="nm">${esc(i.name)}${i.dq>0&&i.qty>=i.dq?` <span class="badge ok">−${i.dp}%</span>`:''}</span><span class="q"><button onclick="cq(${x},-1)">−</button><b>${i.qty}</b><button onclick="cq(${x},1)">+</button></span><b style="width:64px;text-align:right">${money(lineOf(i))}</b></div>`).join('')||'<p class="hint">Cart is empty</p>';
   ct.textContent=money(totOf());
-  cvat.textContent=vatOf()>0.004?`incl. VAT ${S.boot.settings.tax_rate}% · ${money(vatOf())}`:''};
+  cvat.textContent=vatOf()>0.004?`incl. VAT ${S.boot.settings.tax_rate}% · ${money(vatOf())}`:'';
+  const mb=document.getElementById('mbar');if(mb){const n=S.cart.reduce((a,i)=>a+i.qty,0);
+    mb.classList.toggle('show',n>0);document.getElementById('mbt').textContent=n+(n===1?' item':' items')+' · '+money(totOf())}};
 window.cq=(x,d)=>{S.cart[x].qty+=d;if(S.cart[x].qty<=0)S.cart.splice(x,1);drawCart()};
 window.pay=async()=>{const t=totOf();if(!t)return;if(!S.custs)S.custs=await api('/api/customers');
   modal(`<h3>Settle payment</h3><p class="sub" style="margin-bottom:12px">Total due <b>${money(t)}</b></p>
@@ -171,25 +176,31 @@ window.pay=async()=>{const t=totOf();if(!t)return;if(!S.custs)S.custs=await api(
     <div class="row"><label>Discount<input id="pdisc" type="number" step="0.01" value="0"></label><label>Promo code<input id="ppromo" placeholder="optional"></label></div>
     <label>Cash received<input id="cash" type="number" step="0.01" value="${t.toFixed(2)}" autofocus></label>
     <p style="margin:10px 0">Change: <b id="chg">${money(0)}</b></p>
-    <div class="row"><button type="button" class="btn" style="flex:1" onclick="closeM()">Cancel</button><button class="btn primary" style="flex:2" onclick="doPay(${t})">Complete sale</button></div>`);
+    <div class="row"><button type="button" class="btn" style="flex:1" onclick="closeM()">Cancel</button><button class="btn primary" style="flex:2" onclick="doPay(this,${t})">Complete sale</button></div>`);
   cash.oninput=()=>chg.textContent=money(Math.max(0,cash.value-Math.max(0,t-(+pdisc.value||0))))};
 window.parkSale=async()=>{if(!S.cart.length)return toast('Cart is empty');
-  const label=prompt('Name this held sale (e.g. customer name):','Customer');if(label===null)return;
-  await api('/api/held',{method:'POST',body:{label,items:S.cart}});S.cart=[];drawCart();heldCount();toast('Sale parked')};
+  modal(`<h3>Park this sale</h3><form onsubmit="parkSave(event)"><label>Label — e.g. the customer's name<input name="label" value="Customer" required autofocus></label>
+    <div class="row"><button type="button" class="btn" style="flex:1" onclick="closeM()">Cancel</button><button class="btn primary" style="flex:2">Hold it</button></div></form>`)};
+window.parkSave=async e=>{e.preventDefault();const label=(new FormData(e.target).get('label')||'Customer').trim()||'Customer';
+  await api('/api/held',{method:'POST',body:{label,items:S.cart}});S.cart=[];closeM();drawCart();heldCount();toast('Sale parked')};
 window.listHeld=async()=>{const hs=await api('/api/held');
   modal(`<h3>Held sales</h3>${hs.map(h=>`<div class="ci"><span class="nm">${esc(h.label)}</span><span class="sub">${h.created.slice(5,16)} · ${esc(h.cashier||'')}</span>
     <span><button class="btn small primary" onclick="recall(${h.id})">Recall</button> <button class="btn small danger" onclick="delHeld(${h.id})">✕</button></span></div>`).join('')||'<p class="hint">Nothing parked</p>'}`)};
 window.recall=async id=>{const h=await api('/api/held/'+id);S.cart=h.items;await api('/api/held/'+id,{method:'DELETE'});
   closeM();drawCart();heldCount();toast('Recalled '+h.label)};
-window.delHeld=async id=>{await api('/api/held/'+id,{method:'DELETE'});closeM();listHeld();heldCount()};
+window.delHeld=async id=>confirmM('Delete this held sale? The parked cart is lost.',async()=>{await api('/api/held/'+id,{method:'DELETE'});closeM();listHeld();heldCount()});
 window.heldCount=async()=>{const hs=await api('/api/held');const b=document.getElementById('hbtn');if(b)b.textContent='Held'+(hs.length?' ('+hs.length+')':'')};
-window.doPay=async t=>{const r=await api('/api/checkout',{method:'POST',body:{items:S.cart,cash:+cash.value,method:pm.value,customer_name:pcust.value||undefined,discount:+pdisc.value||0,promo_code:(ppromo.value||'').trim().toUpperCase()||undefined}});
+window.doPay=async(btn,t)=>{const need=Math.max(0,t-(+pdisc.value||0));
+  if(pm.value!=='credit'&&+cash.value<need)return toast('Cash received is less than the total',1);
+  btn.disabled=true;btn.textContent='Charging…';
+  try{const r=await api('/api/checkout',{method:'POST',body:{items:S.cart,cash:+cash.value||need,method:pm.value,customer_name:pcust.value||undefined,discount:+pdisc.value||0,promo_code:(ppromo.value||'').trim().toUpperCase()||undefined}});
   closeM();S.cart=[];pgPos();
   const rc=await api('/api/receipt/'+r.id);
   modal(`<h3>Receipt · ${r.invoice}</h3><div class="rc" id="rc">${rcHtml(rc)}</div>
     <div class="row" style="margin-top:14px"><button class="btn" onclick="closeM()">Close</button>
     <button class="btn primary" style="flex:2" onclick="print()">Print receipt</button></div>`);
-  toast(`Sale ${r.invoice} · change ${money(r.change)}`)};
+  toast(`Sale ${r.invoice} · change ${money(r.change)}`)}
+  catch(e){btn.disabled=false;btn.textContent='Complete sale'}};
 const rcHtml=rc=>`<h4>${esc(rc.settings.store_name)}</h4><p class="c">${esc(rc.settings.store_address)}<br>${esc(rc.settings.store_phone)}</p><hr>
   <table>${rc.items.map(i=>`<tr><td>${esc(i.name)} ×${i.qty}</td><td style="text-align:right">${money(i.total)}</td></tr>`).join('')}</table><hr>
   <table>${rc.sale.discount>0?`<tr><td>Discounts</td><td style="text-align:right">−${money(rc.sale.discount)}</td></tr>`:''}
@@ -213,7 +224,7 @@ async function pgProducts(){
     <div class="card"><h2>Categories &amp; Brands</h2>${lkForm('categories',cs)}<hr style="border-color:var(--line);margin:14px 0">${lkForm('brands',bs)}</div>
     <div class="card"><h2>Suppliers</h2>${lkForm('suppliers',ss,true)}</div>
     <div class="card"><h2>Promo codes</h2>${promoHTML(pr)}</div></div>`;
-  const draw=list=>pt.innerHTML=list.map(p=>`<tr><td style="width:56px">${p.image?`<img class="timg" src="${esc(p.image)}" loading="lazy" onerror="this.remove()">`:'<div class="timg ph">📦</div>'}</td><td class="mono">${esc(p.barcode)}</td><td>${esc(p.name)}${p.variant_label?` <span class="badge warn">${esc(p.variant_label)}</span>`:''}${p.pack_size>1?` <span class="badge ok">pack ×${p.pack_size}</span>`:''}${p.taxable?'':' <span class="badge warn">VAT-exempt</span>'}${p.discount_qty>0?` <span class="badge ok">${p.discount_qty}+ −${p.discount_pct}%</span>`:''}${p.expiry?` <span class="badge ${new Date(p.expiry)<new Date(Date.now()+30*864e5)?'bad':'warn'}">exp ${p.expiry}</span>`:''}</td><td>${esc(p.category||'—')}</td><td>${esc(p.brand||'—')}</td><td style="text-align:right">${money(p.cost)}</td><td style="text-align:right"><b>${money(p.price)}</b></td><td style="text-align:right"><span class="badge ${p.stock<=10?'warn':'ok'}">${p.stock}</span></td>${adm?`<td style="text-align:right"><button class="btn small" onclick='pForm(${JSON.stringify(p)})'>Edit</button> <button class="btn small danger" onclick="pdel(${p.id})">✕</button>`:''}</tr>`).join('');
+  const draw=list=>pt.innerHTML=list.map(p=>`<tr><td style="width:56px">${p.image?`<img class="timg" src="${esc(p.image)}" loading="lazy" onerror="this.remove()">`:'<div class="timg ph">📦</div>'}</td><td class="mono">${esc(p.barcode)}</td><td>${esc(p.name)}${p.variant_label?` <span class="badge warn">${esc(p.variant_label)}</span>`:''}${p.pack_size>1?` <span class="badge ok">pack ×${p.pack_size}</span>`:''}${p.taxable?'':' <span class="badge warn">VAT-exempt</span>'}${p.discount_qty>0?` <span class="badge ok">${p.discount_qty}+ −${p.discount_pct}%</span>`:''}${p.expiry?` <span class="badge ${new Date(p.expiry)<new Date(Date.now()+30*864e5)?'bad':'warn'}">exp ${p.expiry}</span>`:''}</td><td>${esc(p.category||'—')}</td><td>${esc(p.brand||'—')}</td><td style="text-align:right">${money(p.cost)}</td><td style="text-align:right"><b>${money(p.price)}</b></td><td style="text-align:right"><span class="badge ${p.stock<=10?'warn':'ok'}">${p.stock}</span></td>${adm?`<td style="text-align:right"><button class="btn small" onclick="pFormById(${p.id})">Edit</button> <button class="btn small danger" onclick="pdel(${p.id})">✕</button>`:''}</tr>`).join('');
   draw(ps);pq.oninput=()=>draw(ps.filter(p=>p.name.toLowerCase().includes(pq.value.toLowerCase())||String(p.barcode).includes(pq.value)));
   if(S.q){pq.value=S.q;pq.dispatchEvent(new Event('input'));S.q=''}
 }
@@ -251,7 +262,8 @@ window.upImg=async el=>{const f=el.files[0];if(!f)return;const r=new FileReader(
 window.pSave=async(e,id)=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target));
   ['price','stock','cost','category_id','brand_id','discount_qty','discount_pct'].forEach(k=>d[k]=+d[k]);d.taxable=e.target.taxable.checked?1:0;
   await api('/api/products'+(id?'/'+id:''),{method:id?'PUT':'POST',body:d});closeM();toast('Saved');pgProducts()};
-window.pdel=async id=>{if(confirm('Delete product?')){await api('/api/products/'+id,{method:'DELETE'});toast('Deleted');pgProducts()}};
+window.pFormById=id=>{const p=(S.prods||[]).find(x=>x.id===id);if(p)pForm(p)};
+window.pdel=async id=>confirmM('Delete this product? It disappears from the till and stops syncing.',async()=>{await api('/api/products/'+id,{method:'DELETE'});toast('Deleted');pgProducts()});
 window.impForm=()=>modal(`<h3>Import products</h3>
   <p class="sub" style="margin-bottom:10px">Supports <b>.csv</b>, <b>.json</b>, <b>.xlsx</b>. Columns: <code>barcode, name, price</code> + optional <code>category, brand, cost, stock, taxable, discount_qty, discount_pct, expiry, image</code>. Existing barcodes get updated.</p>
   <div class="row" style="margin-bottom:12px"><button class="btn small" onclick="dlTpl('csv')">⤓ CSV template</button><button class="btn small" onclick="dlTpl('json')">⤓ JSON template</button></div>
@@ -335,7 +347,7 @@ window.printRc=async id=>{const rc=await api('/api/receipt/'+id);const s=rc.sale
   <tr><td>VAT incl.</td><td style="text-align:right">${money(s.vat)}</td></tr></table>
   <p>Thank you!</p><script>window.onload=()=>{window.print()}<\/script></body></html>`);
   w.document.close()};
-window.voidSale=async id=>{if(confirm('Void this sale? Stock will be returned.')){await api(`/api/sales/${id}/void`,{method:'POST'});toast('Sale voided');pgOrders()}};
+window.voidSale=async id=>confirmM('Void this sale? Stock will be returned to the shelf.',async()=>{await api(`/api/sales/${id}/void`,{method:'POST'});toast('Sale voided');pgOrders()});
 
 /* ---------- Reports ---------- */
 async function pgReports(){
@@ -384,10 +396,11 @@ window.saveRep=async()=>{const{d,r,s}=await repData();
 /* ---------- Users ---------- */
 async function pgUsers(){
   const [us,rs]=await Promise.all([api('/api/users'),api('/api/resets')]);
+  S._users=us;
   M.innerHTML=`<div class="top"><h1>Users</h1><button class="btn primary" onclick="uForm()">+ New user</button></div>
   <div class="card"><table><tr><th>Username</th><th>Name</th><th>Role</th><th></th></tr>
   ${us.map(u=>`<tr><td class="mono">${esc(u.username)}</td><td>${esc(u.name)}</td><td><span class="badge ${u.role==='admin'?'warn':'ok'}">${u.role}</span></td>
-  <td style="text-align:right"><button class="btn small" onclick="roleTog(${u.id},'${u.role==='admin'?'cashier':'admin'}')" title="Toggle role">⇄ ${u.role==='admin'?'cashier':'admin'}</button> <button class="btn small" onclick="pwForm(${u.id},'${esc(u.username)}')">Password</button> <button class="btn small danger" onclick="udel(${u.id})">✕</button></td></tr>`).join('')}</table></div>
+  <td style="text-align:right"><button class="btn small" onclick="roleTog(${u.id},'${u.role==='admin'?'cashier':'admin'}')" title="Toggle role">⇄ ${u.role==='admin'?'cashier':'admin'}</button> <button class="btn small" onclick="pwForm(${u.id})">Password</button> <button class="btn small danger" onclick="udel(${u.id})">✕</button></td></tr>`).join('')}</table></div>
   <div class="card section"><h2>Reset requests${rs.length?` <span class="badge warn">${rs.length}</span>`:''}</h2>
   ${rs.map(r=>`<div class="ci"><span class="nm">${esc(r.uname||r.username)} <span class="sub">· ${esc(r.name||'')}</span></span><span class="sub">${r.created.slice(5,16)}</span>
     <span><button class="btn small primary" onclick="appr(${r.id})">Approve</button> <button class="btn small" onclick="dism(${r.id})">Dismiss</button></span></div>`).join('')||'<p class="hint">No pending requests — when someone clicks "Forgot password" they appear here</p>'}</div>`;
@@ -399,8 +412,8 @@ window.appr=async id=>{const r=await api(`/api/resets/${id}/approve`,{method:'PO
 window.dism=async id=>{await api(`/api/resets/${id}/dismiss`,{method:'POST'});pgUsers()};
 window.uForm=()=>modal(`<h3>New user</h3><form onsubmit="uSave(event)"><div class="row"><label>Username<input name="username" required></label><label>Role<select name="role"><option>cashier</option><option>admin</option></select></label></div><label>Name<input name="name" required></label><label>Password<input name="password" type="password" required></label><div class="row"><button type="button" class="btn" style="flex:1" onclick="closeM()">Cancel</button><button class="btn primary" style="flex:2">Create</button></div></form>`);
 window.uSave=async e=>{e.preventDefault();await api('/api/users',{method:'POST',body:Object.fromEntries(new FormData(e.target))});closeM();toast('User created');pgUsers()};
-window.udel=async id=>{if(confirm('Delete user?')){await api('/api/users/'+id,{method:'DELETE'});pgUsers()}};
-window.pwForm=(id,u)=>modal(`<h3>Reset password · ${u}</h3><form onsubmit="pwSave(event,${id})"><label>New password<input name="password" type="password" required></label><div class="row"><button type="button" class="btn" style="flex:1" onclick="closeM()">Cancel</button><button class="btn primary" style="flex:2">Save</button></div></form>`);
+window.udel=async id=>confirmM('Delete this user? They lose till access immediately.',async()=>{await api('/api/users/'+id,{method:'DELETE'});pgUsers()});
+window.pwForm=id=>{const u=(S._users||[]).find(x=>x.id===id);modal(`<h3>Reset password · ${esc(u?u.username:'')}</h3><form onsubmit="pwSave(event,${id})"><label>New password<input name="password" type="password" required></label><div class="row"><button type="button" class="btn" style="flex:1" onclick="closeM()">Cancel</button><button class="btn primary" style="flex:2">Save</button></div></form>`)};
 window.pwSave=async(e,id)=>{e.preventDefault();await api(`/api/users/${id}/password`,{method:'POST',body:Object.fromEntries(new FormData(e.target))});closeM();toast('Password updated')};
 window.roleTog=async(id,role)=>{await api(`/api/users/${id}/role`,{method:'POST',body:{role}});toast(`Role changed to ${role}`);pgUsers()};
 
@@ -438,7 +451,7 @@ window.pairTok=async()=>{const r=await api('/api/devices',{method:'POST',body:{}
   <p class="mono" style="text-align:center;padding:10px;background:var(--panel2);border-radius:10px;margin:10px 0 0;font-size:13px">Hub URL: <b>${u}</b></p>
   <p class="mono" style="font-size:26px;text-align:center;padding:14px;background:var(--panel2);border-radius:10px;letter-spacing:.2em;margin:10px 0 0"><b>${r.token}</b></p>
   <div class="row" style="margin-top:14px"><button class="btn primary block" onclick="closeM();pgDevices()">Done</button></div>`)};
-window.revokeD=async id=>{if(confirm('Revoke this device? It will lose sync access; its local data stays on the device.')){await api('/api/devices/'+id+'/revoke',{method:'POST'});toast('Device revoked');pgDevices()}};
+window.revokeD=async id=>confirmM('Revoke this device? It loses sync access; its local data stays on the device.',async()=>{await api('/api/devices/'+id+'/revoke',{method:'POST'});toast('Device revoked');pgDevices()});
 
 /* ---------- Camera barcode scan (html5-qrcode — works in Chrome & Firefox) ---------- */
 window.camScan=async(inpId)=>{

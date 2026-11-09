@@ -279,6 +279,17 @@ def _biz_ctx(uid):
     br = pg("GET","branches",params=f"?business_id=eq.{bid}&status=eq.active&select=id&order=created_at&limit=1") or []
     return bid, br[0]["id"]
 
+def _pick_branch(bid, want):
+    """Resolve a requested branch_id; only counts if it's an active branch of this business."""
+    if not want: return None
+    br = pg("GET","branches",params=f"?business_id=eq.{bid}&id=eq.{want}&status=eq.active&select=id&limit=1") or []
+    return br[0]["id"] if br else None
+
+def _is_admin(uid, bid):
+    ms = pg("GET","business_memberships",
+            params=f"?user_id=eq.{uid}&business_id=eq.{bid}&role=eq.admin&select=role&limit=1")
+    return bool(ms)
+
 def _web_device(bid, brid):
     dev = pg("GET","devices",params=f"?business_id=eq.{bid}&branch_id=eq.{brid}&device_name=eq.Web%20till&select=id&limit=1") or []
     if dev: return dev[0]["id"]
@@ -291,6 +302,7 @@ def web_products():
     ctx = _biz_ctx(u["id"])
     if not ctx: return jsonify({"error":"no store"}), 400
     bid, brid = ctx
+    brid = _pick_branch(bid, request.args.get("branch_id")) or brid
     prods = pg("GET","products",params=f"?business_id=eq.{bid}&active=eq.true&order=name") or []
     bals = pg("GET","stock_balances",params=f"?business_id=eq.{bid}&branch_id=eq.{brid}&select=product_id,on_hand") or []
     qty = {b["product_id"]: float(b["on_hand"]) for b in bals}
@@ -305,17 +317,28 @@ def web_sale():
     if not ctx: return jsonify({"error":"no store"}), 400
     bid, brid = ctx
     d = request.get_json(force=True)
+    brid = _pick_branch(bid, d.get("branch_id")) or brid
     items, pays = d.get("items") or [], d.get("payments") or []
     if not items: return jsonify({"error":"empty sale"}), 400
+    # Idempotent retry: a double-tapped or retried charge returns the original sale.
+    cref = (d.get("client_ref") or "")[:64]
+    if cref:
+        ex = pg("GET","sales",params=f"?branch_id=eq.{brid}&client_ref=eq.{cref}&select=receipt_number,total&limit=1")
+        if isinstance(ex, list) and ex:
+            return jsonify({"ok":True,"receipt":ex[0]["receipt_number"],"total":float(ex[0]["total"]),"dup":True})
     disc = float(d.get("discount") or 0)
     sub = sum(float(i["unit_price"])*float(i["qty"]) for i in items)
     total = max(0.0, round(sub - disc, 2))
     tax = round(total*16/116, 2)
     now = datetime.now(timezone.utc).isoformat()
     sid, receipt = str(uuid.uuid4()), "WEB-" + str(int(time.time()))
-    pg("POST","sales",{"id":sid,"business_id":bid,"branch_id":brid,"device_id":_web_device(bid,brid),
+    row = {"id":sid,"business_id":bid,"branch_id":brid,"device_id":_web_device(bid,brid),
        "receipt_number":receipt,"subtotal":round(sub,2),"discount_total":disc,"tax_total":tax,
-       "total":total,"status":"completed","created_at":now})
+       "total":total,"status":"completed","created_at":now}
+    res = pg("POST","sales",{**row, **{k:v for k,v in
+        {"customer_name":(d.get("customer_name") or "").strip() or None, "client_ref":cref or None}.items() if v}})
+    if isinstance(res, dict):  # columns may predate migration 0003 — retry without extras
+        res = pg("POST","sales",row)
     pg("POST","sale_items",[{"sale_id":sid,"business_id":bid,"product_id":i["product_id"],
        "quantity":i["qty"],"unit_price":i["unit_price"],"line_total":round(float(i["unit_price"])*float(i["qty"]),2)} for i in items])
     if pays:
@@ -325,6 +348,47 @@ def web_sale():
         if bal: pg("PATCH","stock_balances",{"on_hand": float(bal[0]["on_hand"])-float(i["qty"])},params=f"?id=eq.{bal[0]['id']}")
         else: pg("POST","stock_balances",{"business_id":bid,"branch_id":brid,"product_id":i["product_id"],"on_hand":-float(i["qty"])})
     return jsonify({"ok":True,"receipt":receipt,"total":total})
+
+@app.get("/api/web/sale/<sid>")
+def web_sale_detail(sid):
+    """One sale with its line items and payments — the receipt view."""
+    u = authed_user()
+    if not u: return jsonify({"error": "unauthorized"}), 401
+    ctx = _biz_ctx(u["id"])
+    if not ctx: return jsonify({"error":"no store"}), 400
+    bid, _ = ctx
+    s = pg("GET","sales",params=f"?id=eq.{sid}&business_id=eq.{bid}&select=*,branches(name)&limit=1") or []
+    if not s: return jsonify({"error":"not found"}), 404
+    items = pg("GET","sale_items",params=f"?sale_id=eq.{sid}&business_id=eq.{bid}&select=quantity,unit_price,line_total,products(name)") or []
+    pays = pg("GET","payments",params=f"?sale_id=eq.{sid}&business_id=eq.{bid}&select=method,amount") or []
+    return jsonify({"sale": s[0], "items": items, "payments": pays})
+
+@app.post("/api/web/sale/<sid>/void")
+def web_sale_void(sid):
+    """Void a completed sale and put its stock back. Admin only."""
+    u = authed_user()
+    if not u: return jsonify({"error": "unauthorized"}), 401
+    ctx = _biz_ctx(u["id"])
+    if not ctx: return jsonify({"error":"no store"}), 400
+    bid, _ = ctx
+    if not _is_admin(u["id"], bid): return jsonify({"error":"admin only"}), 403
+    s = pg("GET","sales",params=f"?id=eq.{sid}&business_id=eq.{bid}&select=id,branch_id,status&limit=1") or []
+    if not s: return jsonify({"error":"not found"}), 404
+    sale = s[0]
+    if sale["status"] != "completed": return jsonify({"error":"already " + sale["status"]}), 400
+    pg("PATCH","sales",{"status":"void"},f"?id=eq.{sid}")
+    now = datetime.now(timezone.utc).isoformat()
+    brid = sale["branch_id"]
+    for i in pg("GET","sale_items",params=f"?sale_id=eq.{sid}&select=product_id,quantity") or []:
+        qty = float(i["quantity"])
+        bal = pg("GET","stock_balances",
+                 params=f"?business_id=eq.{bid}&branch_id=eq.{brid}&product_id=eq.{i['product_id']}&select=id,on_hand&limit=1") or []
+        if bal: pg("PATCH","stock_balances",{"on_hand": float(bal[0]["on_hand"])+qty},params=f"?id=eq.{bal[0]['id']}")
+        else: pg("POST","stock_balances",{"business_id":bid,"branch_id":brid,"product_id":i["product_id"],"on_hand":qty})
+        pg("POST","stock_movements",{"business_id":bid,"branch_id":brid,"product_id":i["product_id"],
+           "movement_type":"SALE_RETURN","quantity_delta":qty,"device_id":_web_device(bid,brid),
+           "note":"void "+sid[:8],"created_at":now})
+    return jsonify({"ok": True})
 
 def _emit(bid, brid, dev, etype, payload):
     eid = str(uuid.uuid4())
