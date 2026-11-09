@@ -572,6 +572,22 @@ def delete_branch():
     pg("PATCH", "branches", {"status": "inactive"}, f"?id=eq.{tid}&business_id=eq.{bid}")
     return jsonify({"ok": True})
 
+@app.post("/api/branches/update")
+def update_branch():
+    """Rename a branch / update its address. Admin only."""
+    u = authed_user()
+    if not u: return jsonify({"error": "unauthorized"}), 401
+    j = request.json or {}
+    bid, tid = j.get("business_id"), j.get("branch_id")
+    name = (j.get("name") or "").strip()
+    if not tid or not name: return jsonify({"error": "branch name required"}), 400
+    ms = pg("GET", "business_memberships",
+            params=f"?user_id=eq.{u['id']}&business_id=eq.{bid}&role=eq.admin&select=role&limit=1")
+    if not ms: return jsonify({"error": "admin only"}), 403
+    pg("PATCH", "branches", {"name": name, "address": (j.get("address") or "").strip() or None},
+       f"?id=eq.{tid}&business_id=eq.{bid}")
+    return jsonify({"ok": True})
+
 @app.get("/")
 def web_index():
     return app.send_static_file("index.html")

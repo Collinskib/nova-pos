@@ -758,7 +758,8 @@ async function branches() {
     <thead><tr><th>Name</th><th>Address</th><th class="right">Status</th></tr></thead>
     <tbody>${(b || []).map(x => `<tr><td><b>${esc(x.name)}</b></td><td class="mut">${esc(x.address || "—")}</td>
       <td class="right"><span class="badge ${x.status !== "active" ? "bad" : ""}">${esc(x.status)}</span>
-      ${role === "admin" && x.status === "active" ? ` <button class="ghost sm danger" data-bid="${x.id}" data-bname="${esc(x.name)}" style="margin-left:8px">Deactivate</button>` : ""}</td></tr>`).join("")}</tbody></table>
+      ${role === "admin" ? ` <button class="ghost sm" data-ebid="${x.id}" data-ebname="${esc(x.name)}" data-ebaddr="${esc(x.address || "")}" style="margin-left:8px">Edit</button>` : ""}
+      ${role === "admin" && x.status === "active" ? ` <button class="ghost sm danger" data-bid="${x.id}" data-bname="${esc(x.name)}" style="margin-left:6px">Deactivate</button>` : ""}</td></tr>`).join("")}</tbody></table>
     ${role === "admin" ? `<h4 style="margin:18px 0 4px">Add a branch</h4>
     <div class="row" style="margin-top:8px"><input id="nbn" placeholder="Branch name" style="flex:2" aria-label="Branch name">
       <input id="nba" placeholder="Address (optional)" style="flex:2" aria-label="Address">
@@ -766,6 +767,25 @@ async function branches() {
   c.querySelectorAll("button[data-bid]").forEach(btn => btn.onclick = () =>
     confirmM(`Deactivate ${btn.dataset.bname}? Sales history stays; the branch stops taking new sales.`, "Deactivate",
       () => delBranch(btn.dataset.bid)));
+  c.querySelectorAll("button[data-ebid]").forEach(btn => btn.onclick = () =>
+    editBranch(btn.dataset.ebid, btn.dataset.ebname, btn.dataset.ebaddr));
+}
+function editBranch(id, name, addr) {
+  modal(`<h2>Edit branch</h2><form onsubmit="saveBranch(event,'${id}')">
+    <label for="eb-n">Name</label><input id="eb-n" value="${esc(name)}" required>
+    <label for="eb-a">Address</label><input id="eb-a" value="${esc(addr)}" placeholder="optional">
+    <div class="mrow"><button type="button" class="ghost" onclick="closeM()">Cancel</button>
+    <button class="p">Save</button></div></form>`);
+}
+async function saveBranch(e, id) {
+  e.preventDefault();
+  const r = await api("/api/branches/update", {business_id: biz.id, branch_id: id,
+    name: document.getElementById("eb-n").value.trim(), address: document.getElementById("eb-a").value.trim()});
+  if (r.error || !r.ok) return modal(`<h2>Couldn't save</h2><p class="sub" style="margin:0 0 14px">${esc(r.error || "failed")}</p>
+    <div class="mrow"><button class="p" onclick="closeM()">OK</button></div>`);
+  const {data: bs} = await sb.from("branches").select("id,name,status").eq("status", "active").order("created_at");
+  _branches = bs || [];
+  closeM(); branches();
 }
 async function delBranch(id) {
   const r = await api("/api/branches/delete", {business_id: biz.id, branch_id: id});
