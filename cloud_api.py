@@ -8,7 +8,7 @@ never leaves this process (§4.3).
 """
 import os, json, urllib.request, urllib.error, uuid, time
 import uuid, time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from flask import Flask, request, jsonify
 from functools import wraps
 
@@ -388,6 +388,132 @@ def web_sale_void(sid):
         pg("POST","stock_movements",{"business_id":bid,"branch_id":brid,"product_id":i["product_id"],
            "movement_type":"SALE_RETURN","quantity_delta":qty,"device_id":_web_device(bid,brid),
            "note":"void "+sid[:8],"created_at":now})
+    return jsonify({"ok": True})
+
+@app.get("/api/web/reports")
+def web_reports():
+    """Day report for one branch: totals, payment split, top items, sale list."""
+    u = authed_user()
+    if not u: return jsonify({"error": "unauthorized"}), 401
+    ctx = _biz_ctx(u["id"])
+    if not ctx: return jsonify({"error":"no store"}), 400
+    bid, brid = ctx
+    brid = _pick_branch(bid, request.args.get("branch_id")) or brid
+    d = request.args.get("date") or utcnow()[:10]
+    try: nxt = (datetime.strptime(d, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+    except ValueError: return jsonify({"error":"bad date — use YYYY-MM-DD"}), 400
+    sales = pg("GET","sales",
+        params=f"?business_id=eq.{bid}&branch_id=eq.{brid}&created_at=gte.{d}T00:00:00Z"
+               f"&created_at=lt.{nxt}T00:00:00Z&order=created_at.desc"
+               f"&select=id,receipt_number,total,tax_total,discount_total,status,created_at,customer_name") or []
+    done = [s for s in sales if s["status"] == "completed"]
+    ids = ",".join(s["id"] for s in done)
+    pays, items = [], []
+    if ids:
+        pays = pg("GET","payments",params=f"?sale_id=in.({ids})&select=method,amount") or []
+        items = pg("GET","sale_items",params=f"?sale_id=in.({ids})&select=quantity,line_total,products(name)") or []
+    by_method, top = {}, {}
+    for p in pays: by_method[p["method"]] = by_method.get(p["method"], 0) + float(p["amount"])
+    for i in items:
+        nm = (i.get("products") or {}).get("name") or "Item"
+        t = top.setdefault(nm, {"qty": 0.0, "revenue": 0.0})
+        t["qty"] += float(i["quantity"]); t["revenue"] += float(i["line_total"])
+    return jsonify({"date": d, "revenue": sum(float(s["total"]) for s in done),
+        "orders": len(done), "voided": len(sales) - len(done),
+        "vat": round(sum(float(s["tax_total"]) for s in done), 2),
+        "discounts": round(sum(float(s["discount_total"]) for s in done), 2),
+        "by_method": by_method,
+        "top": sorted([{"name": n, **v} for n, v in top.items()], key=lambda x: -x["qty"])[:10],
+        "sales": [{"receipt": s["receipt_number"], "total": float(s["total"]), "status": s["status"],
+                   "when": s["created_at"], "customer": s.get("customer_name")} for s in sales[:50]]})
+
+def _member_rows(bid):
+    ms = pg("GET","business_memberships",
+            params=f"?business_id=eq.{bid}&select=user_id,role,created_at,profiles(display_name)") or []
+    req = urllib.request.Request(f"{URL}/auth/v1/admin/users?per_page=200",
+        headers={"apikey": KEY, "Authorization": f"Bearer {KEY}"})
+    try:
+        with urllib.request.urlopen(req) as r: au = {x["id"]: x.get("email") for x in json.loads(r.read()).get("users", [])}
+    except Exception: au = {}
+    for m in ms: m["email"] = au.get(m["user_id"], "")
+    return ms
+
+@app.get("/api/web/members")
+def web_members():
+    u = authed_user()
+    if not u: return jsonify({"error": "unauthorized"}), 401
+    ctx = _biz_ctx(u["id"])
+    if not ctx: return jsonify({"error":"no store"}), 400
+    bid, _ = ctx
+    if not _is_admin(u["id"], bid): return jsonify({"error":"admin only"}), 403
+    return jsonify(_member_rows(bid))
+
+@app.post("/api/web/members")
+def web_member_add():
+    """Create a staff login (temp password) + membership. Admin only."""
+    u = authed_user()
+    if not u: return jsonify({"error": "unauthorized"}), 401
+    ctx = _biz_ctx(u["id"])
+    if not ctx: return jsonify({"error":"no store"}), 400
+    bid, _ = ctx
+    if not _is_admin(u["id"], bid): return jsonify({"error":"admin only"}), 403
+    d = request.get_json(force=True)
+    email, role = (d.get("email") or "").strip().lower(), d.get("role") or "cashier"
+    if not email or "@" not in email: return jsonify({"error":"valid email required"}), 400
+    if role not in ("admin","cashier","manager"): return jsonify({"error":"bad role"}), 400
+    temp = "Shujaa-" + uuid.uuid4().hex[:8]
+    req = urllib.request.Request(f"{URL}/auth/v1/admin/users", method="POST",
+        headers={"apikey": KEY, "Authorization": f"Bearer {KEY}", "Content-Type": "application/json"},
+        data=json.dumps({"email": email, "password": temp, "email_confirm": True,
+                         "user_metadata": {"full_name": d.get("name") or email.split("@")[0]}}).encode())
+    try:
+        with urllib.request.urlopen(req) as r: nu = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        return jsonify({"error": "auth: " + e.read().decode()[:200]}), 400
+    uid = nu.get("id") or (nu.get("user") or {}).get("id")
+    pg("POST","profiles",{"id":uid,"display_name":d.get("name") or email.split("@")[0]})
+    pg("POST","business_memberships",{"business_id":bid,"user_id":uid,"role":role})
+    for b in pg("GET","branches",params=f"?business_id=eq.{bid}&status=eq.active&select=id") or []:
+        pg("POST","branch_memberships",{"business_id":bid,"branch_id":b["id"],"user_id":uid})
+    return jsonify({"ok": True, "temp_password": temp})
+
+def _admin_guard(u, bid, uid):
+    """Block removing/demoting yourself or the last admin."""
+    ms = pg("GET","business_memberships",
+            params=f"?business_id=eq.{bid}&role=eq.admin&select=user_id") or []
+    admins = [m["user_id"] for m in ms]
+    if uid == u["id"]: return "you can't change your own access"
+    if uid in admins and len(admins) <= 1: return "can't remove the last admin"
+    return None
+
+@app.post("/api/web/members/<uid>/role")
+def web_member_role(uid):
+    u = authed_user()
+    if not u: return jsonify({"error": "unauthorized"}), 401
+    ctx = _biz_ctx(u["id"])
+    if not ctx: return jsonify({"error":"no store"}), 400
+    bid, _ = ctx
+    if not _is_admin(u["id"], bid): return jsonify({"error":"admin only"}), 403
+    role = (request.get_json(force=True).get("role") or "")
+    if role not in ("admin","cashier","manager"): return jsonify({"error":"bad role"}), 400
+    if role == "cashier":
+        g = _admin_guard(u, bid, uid)
+        if g: return jsonify({"error": g}), 400
+    pg("PATCH","business_memberships",{"role":role},f"?business_id=eq.{bid}&user_id=eq.{uid}")
+    return jsonify({"ok": True})
+
+@app.post("/api/web/members/<uid>/remove")
+def web_member_remove(uid):
+    u = authed_user()
+    if not u: return jsonify({"error": "unauthorized"}), 401
+    ctx = _biz_ctx(u["id"])
+    if not ctx: return jsonify({"error":"no store"}), 400
+    bid, _ = ctx
+    if not _is_admin(u["id"], bid): return jsonify({"error":"admin only"}), 403
+    g = _admin_guard(u, bid, uid)
+    if g: return jsonify({"error": g}), 400
+    pg("DELETE","business_memberships",params=f"?business_id=eq.{bid}&user_id=eq.{uid}")
+    pg("DELETE","branch_memberships",params=f"?business_id=eq.{bid}&user_id=eq.{uid}")
     return jsonify({"ok": True})
 
 def _emit(bid, brid, dev, etype, payload):

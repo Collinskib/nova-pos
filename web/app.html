@@ -1,6 +1,12 @@
 <!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ShujaaPOS</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#7c4de8">
+<link rel="icon" href="/icon.png">
+<link rel="apple-touch-icon" href="/icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <style>
 :root{--bg:#0b0817;--card:#191333;--card2:#221b45;--acc:#7c4de8;--acc2:#a78bfa;--ok:#3ecf8e;--bad:#e05a5a;--warn:#e0a53f;--mut:#9a93c2;--txt:#f0eeff;--line:#2e2657;--line2:#3a3069}
 *{box-sizing:border-box;font-family:system-ui,-apple-system,sans-serif}
@@ -131,7 +137,7 @@ const api = async (p, body) => {
       body: body ? JSON.stringify(body) : undefined});
     return await r.json();
   } catch (e) {
-    return {error: "Network error — check your connection and try again."};
+    return {error: "Network error — check your connection and try again.", offline: true};
   }
 };
 
@@ -150,6 +156,33 @@ const confirmM = (msg, label, fn) => {
   modal(`<h2>${esc(msg)}</h2><div class="mrow"><button class="ghost" onclick="closeM()">Cancel</button>
     <button class="p" onclick="closeM();window._cf()">${esc(label || "Confirm")}</button></div>`);
 };
+
+/* ---------- offline queue ---------- */
+const queue = () => JSON.parse(localStorage.getItem("shujaa_queue") || "[]");
+const saveQueue = q => localStorage.setItem("shujaa_queue", JSON.stringify(q));
+const dropped = () => +(localStorage.getItem("shujaa_dropped") || 0);
+async function flushQueue() {
+  let q = queue(), fails = dropped();
+  while (q.length && navigator.onLine) {
+    const r = await api("/api/web/sale", q[0]);
+    if (r.error && r.offline) break;
+    if (r.error) { fails++; localStorage.setItem("shujaa_dropped", fails); q = q.slice(1); continue; }
+    q = q.slice(1);
+  }
+  saveQueue(q);
+  syncBadge();
+}
+function syncBadge() {
+  const el = document.getElementById("syncb");
+  if (!el) return;
+  const n = queue().length, f = dropped();
+  const off = !navigator.onLine;
+  el.innerHTML = off || n || f
+    ? `<span class="badge ${off ? 'bad' : 'warn'}" title="${f ? f + ' sale(s) could not sync' : ''}">${off ? "Offline" : ""}${n ? ` · ${n} queued` : ""}${f && !n ? ` · ${f} failed` : ""}</span>`
+    : "";
+}
+addEventListener("online", () => { syncBadge(); flushQueue(); });
+addEventListener("offline", syncBadge);
 
 /* ---------- auth ---------- */
 let mode = "up";
@@ -224,16 +257,18 @@ async function boot() {
   _branches = bs || [];
   M.innerHTML = `<div class="app">
     <div class="top"><h1>ShujaaPOS <span class="mut" style="font-size:13px;font-weight:400">· ${esc(biz?.name)}</span></h1>
-      <span class="sub" style="margin:0">${esc(me.email)} · ${esc(role)} <a href="#" onclick="sb.auth.signOut().then(boot);return false">sign out</a></span></div>
+      <span class="sub" style="margin:0"><span id="syncb"></span> ${esc(me.email)} · ${esc(role)} <a href="#" onclick="sb.auth.signOut().then(boot);return false">sign out</a></span></div>
     <div class="nav" id="nav" role="tablist"></div><div id="c"></div></div><div id="mo"></div>`;
+  syncBadge(); flushQueue();
   show("dash");
 }
-const TABS = {dash: "Dashboard", pos: "POS", sales: "Sales", products: "Products", branches: "Branches"};
+const TABS = {dash: "Dashboard", pos: "POS", sales: "Sales", products: "Products", branches: "Branches", reports: "Reports", users: "Users"};
 function show(p) {
   page = p;
   document.getElementById("nav").innerHTML =
-    Object.entries(TABS).map(([k, l]) => `<button class="ni ${k === p ? 'on' : ''}" role="tab" aria-selected="${k === p}" onclick="show('${k}')">${l}</button>`).join("");
-  ({dash, pos, sales, products, branches})[p]();
+    Object.entries(TABS).filter(([k]) => k !== "users" || role === "admin")
+      .map(([k, l]) => `<button class="ni ${k === p ? 'on' : ''}" role="tab" aria-selected="${k === p}" onclick="show('${k}')">${l}</button>`).join("");
+  ({dash, pos, sales, products, branches, reports, users})[p]();
 }
 
 /* ---------- pages ---------- */
@@ -532,8 +567,9 @@ function renderDone(r) {
   if (panel) panel.classList.add("open");
   document.getElementById("cart").innerHTML = "";
   panel.innerHTML = `<div class="donebox">
-    <div class="big">Sale complete</div>
-    ${r.change > 0.004 ? `<div class="chamt">${ksh(r.change)}</div><div class="mut" style="font-size:12px;margin-top:-4px">change due</div>`
+    <div class="big">${r.queued ? "Saved offline" : "Sale complete"}</div>
+    ${r.queued ? `<div class="chamt" style="font-size:16px;color:var(--warn)">Queued — sends itself when you're back online.</div>`
+      : r.change > 0.004 ? `<div class="chamt">${ksh(r.change)}</div><div class="mut" style="font-size:12px;margin-top:-4px">change due</div>`
       : r.method === "credit" ? `<div class="chamt">${ksh(r.total)}</div><div class="mut" style="font-size:12px;margin-top:-4px">on credit</div>`
       : '<div class="chamt">Paid in full</div>'}
     <div class="receipt">Receipt ${esc(r.receipt)} · ${esc(r.method)} · ${ksh(r.total)}${r.customer ? ` · ${esc(r.customer)}` : ""}</div>
@@ -553,14 +589,23 @@ async function pay() {
   const customer = method === "credit" ? document.getElementById("cust").value.trim() : "";
   if (method === "credit" && !customer) return say("Credit sales need a customer name.", "err");
   btn.disabled = true; btn.textContent = "Charging…";
+  const payload = {
+    items: rows.map(x => ({product_id: x.p.id, qty: x.qty, unit_price: x.p.selling_price})),
+    payments: [{method, amount: tendered}],
+    tendered,
+    branch_id: curBranch || undefined,
+    customer_name: customer || undefined,
+    client_ref: "web-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8)};
   try {
-    const r = await api("/api/web/sale", {
-      items: rows.map(x => ({product_id: x.p.id, qty: x.qty, unit_price: x.p.selling_price})),
-      payments: [{method, amount: tendered}],
-      tendered,
-      branch_id: curBranch || undefined,
-      customer_name: customer || undefined,
-      client_ref: "web-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8)});
+    const r = await api("/api/web/sale", payload);
+    if (r.error && r.offline) {
+      const q = queue(); q.push(payload); saveQueue(q);
+      cart = {};
+      renderDone({receipt: "QUEUED — syncs when you're back online", total, tendered, method, customer,
+        change: Math.max(0, tendered - total), queued: true});
+      syncBadge();
+      return;
+    }
     if (r.error) return say(esc(r.error), "err");
     cart = {};
     renderDone({receipt: r.receipt, total: r.total, tendered, method, customer, change: Math.max(0, tendered - r.total)});
@@ -622,6 +667,88 @@ async function saveStock(e, id) {
   say(`Stock updated (${d > 0 ? "+" : ""}${d}) — syncs to your tills.`, "okm");
 }
 
+/* ---------- reports ---------- */
+async function reports() {
+  const c = document.getElementById("c");
+  c.innerHTML = `<div class="panel">Loading…</div>`;
+  const d = new URLSearchParams(location.search).get("d") || new Date().toISOString().slice(0, 10);
+  const r = await api("/api/web/reports?date=" + d + (curBranch ? "&branch_id=" + curBranch : ""));
+  if (r.error) { c.innerHTML = `<div class="panel">${esc(r.error)}</div>`; return; }
+  c.innerHTML = `<div class="panel"><div class="row" style="margin:0 0 14px;align-items:end;gap:10px">
+    <h2 style="margin:0;flex:1">Reports</h2>
+    ${_branches.length > 1 ? `<select id="rbr" style="max-width:150px">${_branches.map(b => `<option value="${b.id}" ${b.id === curBranch ? "selected" : ""}>${esc(b.name)}</option>`).join("")}</select>` : ""}
+    <input type="date" id="rd" value="${r.date}" style="max-width:150px"></div>
+    <div class="kpis">
+      <div class="kpi"><div class="k">Revenue</div><div class="kv">${ksh(r.revenue)}</div></div>
+      <div class="kpi"><div class="k">Orders</div><div class="kv">${r.orders}</div></div>
+      <div class="kpi"><div class="k">VAT</div><div class="kv">${ksh(r.vat)}</div></div>
+      <div class="kpi"><div class="k">Discounts</div><div class="kv">${ksh(r.discounts)}</div></div>
+      ${r.voided ? `<div class="kpi"><div class="k">Voided</div><div class="kv">${r.voided}</div></div>` : ""}</div>
+    <div class="mchips" style="margin:0 0 16px">${Object.entries(r.by_method).map(([m, a]) =>
+      `<span class="mchip on" style="cursor:default">${esc(m)} · ${ksh(a)}</span>`).join("") || '<span class="mut">No payments today</span>'}</div></div>
+    <div class="panel"><h2 style="margin-top:0">Top items</h2><table>
+      <thead><tr><th>Product</th><th class="right">Qty</th><th class="right">Revenue</th></tr></thead>
+      <tbody>${r.top.map(t => `<tr><td>${esc(t.name)}</td><td class="right">${+t.qty}</td><td class="right"><b>${ksh(t.revenue)}</b></td></tr>`).join("")
+        || '<tr><td colspan=3 class="mut">Nothing sold on this date</td></tr>'}</tbody></table></div>
+    <div class="panel"><h2 style="margin-top:0">Sales</h2><table>
+      <thead><tr><th>Receipt</th><th>When</th><th>Customer</th><th class="right">Total</th><th></th></tr></thead>
+      <tbody>${r.sales.map(s => `<tr><td class="mono">${esc(s.receipt)}</td><td class="mut">${when(s.when)}</td>
+        <td class="mut">${esc(s.customer || "—")}</td><td class="right"><b>${ksh(s.total)}</b></td>
+        <td><span class="badge ${s.status === 'completed' ? '' : 'bad'}">${esc(s.status)}</span></td></tr>`).join("")
+        || '<tr><td colspan=5 class="mut">No sales this day</td></tr>'}</tbody></table></div>`;
+  document.getElementById("rd").onchange = e => { history.replaceState(null, "", "?d=" + e.target.value); reports(); };
+  const rb = document.getElementById("rbr");
+  if (rb) rb.onchange = () => { curBranch = rb.value; reports(); };
+}
+
+/* ---------- users (admin) ---------- */
+async function users() {
+  const c = document.getElementById("c");
+  c.innerHTML = `<div class="panel">Loading…</div>`;
+  const ms = await api("/api/web/members");
+  if (ms.error) { c.innerHTML = `<div class="panel">${esc(ms.error)}</div>`; return; }
+  c.innerHTML = `<div class="panel"><h2 style="margin-top:0">Team · ${ms.length}</h2><table>
+    <thead><tr><th>Email</th><th>Role</th><th class="right"></th></tr></thead>
+    <tbody id="utb">${ms.map(m => `<tr><td>${esc(m.email || (m.profiles || {}).display_name || m.user_id.slice(0, 8))}</td>
+      <td><span class="badge ${m.role === 'admin' ? 'warn' : ''}">${esc(m.role)}</span></td>
+      <td class="right"><button class="ghost sm" data-act="role" data-id="${m.user_id}" data-role="${m.role === 'admin' ? 'cashier' : 'admin'}">Make ${m.role === 'admin' ? 'cashier' : 'admin'}</button>
+      <button class="ghost sm danger" data-act="rm" data-id="${m.user_id}" style="margin-left:6px">Remove</button></td></tr>`).join("")}</tbody></table>
+    <h4 style="margin:18px 0 4px">Add a team member</h4>
+    <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:8px">
+      <input id="nue" type="email" placeholder="Email" style="flex:2;min-width:160px" aria-label="Email">
+      <select id="nur" style="flex:1;min-width:110px" aria-label="Role"><option value="cashier">cashier</option><option value="manager">manager</option><option value="admin">admin</option></select>
+      <button class="p" onclick="addMember()">Create login</button></div>
+    <p class="mut" style="font-size:12px;margin-top:6px">They sign in at this page with the temp password shown once.</p>
+    <div id="msg" aria-live="polite"></div></div>`;
+  document.getElementById("utb").addEventListener("click", e => {
+    const b = e.target.closest("button[data-act]");
+    if (!b) return;
+    if (b.dataset.act === "role") memberRole(b.dataset.id, b.dataset.role);
+    else confirmM("Remove this person? Their login loses access to this store.", "Remove", () => memberRm(b.dataset.id));
+  });
+}
+async function memberRole(uid, r) {
+  const res = await api("/api/web/members/" + uid + "/role", {role: r});
+  if (res.error) return modal(`<h2>Couldn't change role</h2><p class="sub" style="margin:0 0 14px">${esc(res.error)}</p>
+    <div class="mrow"><button class="p" onclick="closeM()">OK</button></div>`);
+  users();
+}
+async function memberRm(uid) {
+  const res = await api("/api/web/members/" + uid + "/remove", {});
+  if (res.error) return modal(`<h2>Couldn't remove</h2><p class="sub" style="margin:0 0 14px">${esc(res.error)}</p>
+    <div class="mrow"><button class="p" onclick="closeM()">OK</button></div>`);
+  users();
+}
+async function addMember() {
+  const e = document.getElementById("nue").value.trim();
+  if (!e) return say("Enter their email.", "err");
+  const r = await api("/api/web/members", {email: e, role: document.getElementById("nur").value});
+  if (r.error) return say(esc(r.error), "err");
+  modal(`<h2>Login created</h2><p class="sub" style="margin:0 0 10px">Give ${esc(e)} this temporary password — they'll set their own after signing in:</p>
+    <p class="mono" style="font-size:20px;text-align:center;padding:14px;background:#12102a;border-radius:10px;margin:0 0 14px"><b>${esc(r.temp_password)}</b></p>
+    <div class="mrow"><button class="p" onclick="closeM();users()">Done</button></div>`);
+}
+
 /* ---------- branches ---------- */
 async function branches() {
   const c = document.getElementById("c");
@@ -652,6 +779,7 @@ async function addBranch() {
   if (r.error) return say(esc(r.error), "err");
   branches();
 }
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 sb.auth.onAuthStateChange((e, s) => { if (e === "SIGNED_IN" || e === "SIGNED_OUT") boot(); });
 boot();
 </script><script>window.va=window.va||function(){(window.vaq=window.vaq||[]).push(arguments)};</script>
