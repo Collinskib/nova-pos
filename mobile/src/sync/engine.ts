@@ -1,13 +1,26 @@
 // Sync engine (spec §11): prefer hub, fall back to cloud; dedupe + cursors; backoff with jitter.
 import { getDb, tx, all, one, run } from "../db/database";
-import { seedProducts, setState } from "../db/repos";
+import { seedProducts, setState, getState } from "../db/repos";
 import { hub, creds } from "../lib/api";
 import { useStore } from "../store/store";
 
 let delay = 3000, timer: any = null;
 const jitter = () => Math.random() * 1000;
 
+// The hub serializes sync_events.payload as a TEXT column → it arrives as a
+// JSON *string*, not an object. Property access on a string silently yields
+// undefined in JS, which projected remote sales as 0-total "EXT-…" shells.
+// Decode once at the boundary (double-decode for inbox rows stored pre-fix).
+function payloadOf(raw: any): any {
+  let v = raw;
+  for (let i = 0; i < 2 && typeof v === "string"; i++) {
+    try { v = JSON.parse(v); } catch { return {}; }
+  }
+  return (v && typeof v === "object") ? v : {};
+}
+
 async function applyEvent(d: any, e: any) {
+  e = { ...e, payload: payloadOf(e.payload) };
   // inbound events are stored + deduped by event_id before this is called
   if (e.event_type === "PRODUCT_CREATED" || e.event_type === "PRODUCT_UPDATED") {
     const p = e.payload;
@@ -16,14 +29,29 @@ async function applyEvent(d: any, e: any) {
     await run(d, "ALTER TABLE products ADD COLUMN variant_label TEXT").catch(() => {});
     await run(d, "ALTER TABLE products ADD COLUMN pack_size INTEGER").catch(() => {});
     await run(d, "ALTER TABLE products ADD COLUMN pack_price_cents INTEGER").catch(() => {});
+    // The catalog is seeded from /api/v1/products keyed by the hub's int id
+    // (its table has no uuid column); events may carry entity_id as uuid5.
+    // Resolve the existing row by int id, uuid, or barcode so a dialect
+    // mismatch never forks a product into two rows.
+    const pid = String(p.product_id ?? p.product_uuid ?? e.entity_id);
+    const bc = p.barcode ?? "";
+    const ex = await one<{ id: string }>(d,
+      `SELECT id FROM products WHERE id=? OR id=?
+        OR (barcode IS NOT NULL AND barcode != '' AND barcode=?) LIMIT 1`,
+      [pid, String(p.product_uuid ?? ""), bc]);
+    const key = ex?.id ?? pid;
     await run(d, `INSERT OR REPLACE INTO products(id,business_id,barcode,name,price_cents,price_wholesale_cents,cost_cents,stock,taxable,parent_id,variant_label,pack_size,pack_price_cents,updated_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [e.entity_id, e.business_id, p.barcode, p.name,
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [key, e.business_id, p.barcode, p.name,
       Math.round((p.price || 0) * 100), p.price_wholesale != null ? Math.round(p.price_wholesale * 100) : null,
       Math.round((p.cost || 0) * 100), p.stock ?? 0, p.taxable ?? 1, p.parent_id ?? null, p.variant_label ?? null,
       p.pack_size ?? 0, p.pack_price != null ? Math.round(p.pack_price * 100) : null, new Date().toISOString()]);
   }
   else if (e.event_type === "PRODUCT_DELETED") {
-    await run(d, "DELETE FROM products WHERE id=?", [e.entity_id]);
+    const p = e.payload;
+    await run(d, `DELETE FROM products WHERE id=? OR id=?
+      OR (barcode IS NOT NULL AND barcode != '' AND barcode=?)`,
+      [String(p.product_id ?? p.product_uuid ?? e.entity_id),
+       String(p.product_uuid ?? ""), p.barcode ?? ""]);
   }
   else if (e.event_type === "TRANSFER_CREATED") {
     const p = e.payload;
@@ -77,6 +105,7 @@ async function applyEvent(d: any, e: any) {
       }
       for (const pay of p.payments || []) {
         const amt = pay.amount_cents != null ? pay.amount_cents : Math.round((pay.amount || 0) * 100);
+        if (amt <= 0 && (pay.method || "cash") !== "credit") continue;
         await run(d, "INSERT INTO payments(id,sale_id,method,amount_cents,created_at) VALUES(?,?,?,?,?)",
           [`${e.event_id}:${pay.method || "cash"}`, sid, pay.method || "cash", amt,
            e.device_created_at || new Date().toISOString()]);
@@ -170,6 +199,30 @@ export async function syncOnce() {
   const base = await hub.base();
   const key = c.device_key;
 
+  // One-time repair: pre-fix pulls stored/apply payloads double-encoded, so
+  // remote events were all no-ops and mirrored sales became "EXT-…" shells
+  // (0 total, no items/payments). Product events also forked rows when the
+  // event's entity id used a different dialect than the seeded catalog.
+  // Drop the shells + id-dialect duplicates and every inboxed event, rewind
+  // the pull cursor, and let the normal pull re-fetch + re-apply.
+  if (await getState(d, "fix_string_payload_v4") == null) {
+    await run(d, "DELETE FROM sales WHERE receipt_no LIKE 'EXT-%'");
+    await run(d, "DELETE FROM sale_items WHERE sale_id NOT IN (SELECT id FROM sales)");
+    await run(d, "DELETE FROM payments WHERE sale_id NOT IN (SELECT id FROM sales)");
+    await run(d, "DELETE FROM payments WHERE amount_cents <= 0 AND method != 'credit'");
+    // The seeded catalog is always int-keyed (hub /api/v1/products has no uuid
+    // column) — every hyphenated (uuid5) product row is event-driven residue
+    // from the id-dialect fork. Drop them; the int row rebuilds via reseed.
+    await run(d, "DELETE FROM products WHERE id LIKE '%-%'");
+    await run(d, "DELETE FROM stock_balances WHERE product_id NOT IN (SELECT id FROM products)");
+    await run(d, "DELETE FROM sync_inbox");
+    await run(d, `DELETE FROM sync_conflicts WHERE reason='unmapped_product'
+      AND detail LIKE '%"product_id":""%'`);
+    await run(d, "INSERT OR REPLACE INTO sync_cursors(destination,last_sequence,updated_at) VALUES('hub',0,?)",
+      [new Date().toISOString()]);
+    await setState(d, "fix_string_payload_v4", "1");
+  }
+
   // 1. push outbox → hub (spec §11.2)
   const pending = await all<any>(d, "SELECT * FROM sync_outbox WHERE cloud_acked=0 ORDER BY id LIMIT 100");
   let pushed = 0;
@@ -202,10 +255,11 @@ export async function syncOnce() {
     for (const e of r.events || []) {
       const dup = await one(d, "SELECT 1 x FROM sync_inbox WHERE event_id=?", [e.event_id]);
       if (!dup) {
+        const payload = payloadOf(e.payload);
         await run(d, `INSERT INTO sync_inbox(event_id,server_sequence,event_type,entity_id,payload,applied,received_at)
           VALUES(?,?,?,?,?,1,?)`, [e.event_id, e.server_sequence, e.event_type, e.entity_id,
-          JSON.stringify(e.payload || {}), new Date().toISOString()]);
-        await applyEvent(d, e);   // apply inside same durable step before cursor moves
+          JSON.stringify(payload), new Date().toISOString()]);
+        await applyEvent(d, { ...e, payload });   // apply inside same durable step before cursor moves
       }
       top = Math.max(top, e.server_sequence);
     }

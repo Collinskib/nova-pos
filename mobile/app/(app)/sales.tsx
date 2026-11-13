@@ -13,7 +13,7 @@ export default function Sales() {
       <Text style={s.brand}>Sales history <Text style={s.loc}>(device-local)</Text></Text>
       <TextInput style={s.search} placeholder="Search receipt no…" placeholderTextColor="#8b86a8"
         value={q} onChangeText={setQ} autoCapitalize="characters" />
-      <FlatList data={data} keyExtractor={r => r.id} contentContainerStyle={{ paddingVertical: 10 }}
+      <FlatList data={data} keyExtractor={(r, i) => `${r.id}:${i}`} contentContainerStyle={{ paddingVertical: 10 }}
         renderItem={({ item: r }) => (
           <View style={s.li}>
             <View>
