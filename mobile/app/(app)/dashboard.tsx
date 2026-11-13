@@ -21,7 +21,7 @@ export default function Dashboard() {
     load(); const i = setInterval(load, 5000); return () => clearInterval(i);
   }, []);
 
-  const [label, color] = LABEL[syncState];
+  const [label, color] = LABEL[syncState] ?? LABEL.offline;
   return (
     <ScrollView style={s.c}>
       <Text style={s.brand}>Today</Text>
@@ -34,8 +34,8 @@ export default function Dashboard() {
         <View style={s.kpi}><Text style={s.kv}>{pending}</Text><Text style={s.kk}>Unsynced</Text></View>
       </View>
       <Text style={s.h}>Recent transactions</Text>
-      {recent.map(r => (
-        <View key={r.id} style={s.li}>
+      {recent.map((r, i) => (
+        <View key={`${r.id}:${i}`} style={s.li}>
           <View><Text style={s.ln}>{r.receipt_no}</Text>
             <Text style={s.ls}>{new Date(r.created_at).toLocaleTimeString()}</Text></View>
           <Text style={[s.lt, r.status === "void" && { color: "#e05a5a" }]}>

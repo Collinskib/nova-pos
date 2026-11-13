@@ -7,7 +7,7 @@ import { sb } from "../src/lib/supabase";
 import { useStore } from "../src/store/store";
 import { startSync } from "../src/sync/engine";
 
-export const unstable_settings = { initialRouteName: "index" };
+export const unstable_settings = { anchor: "index" };
 
 export default function Root() {
   const ctx = useStore(s => s.ctx);
@@ -39,4 +39,4 @@ export default function Root() {
   return <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#14102b" } }} />;
 }
 
-export const fmt = (cents: number) => `KSh ${(cents / 100).toFixed(2)}`;
+export const fmt = (cents: number) => `KSh ${(cents / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`;
