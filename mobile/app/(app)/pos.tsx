@@ -26,7 +26,7 @@ export default function Pos() {
   const [refreshing, setRefreshing] = useState(false);
   const [rc, setRc] = useState<any>(null);
   const [pays, setPays] = useState<{ m: string; a: string }[]>([{ m: "cash", a: "" }]);
-  const paidC = () => pays.reduce((a, p) => a + Math.round((parseFloat(p.a) || 0) * 100), 0);
+  const paidC = () => pays.reduce((a, p) => a + Math.max(0, Math.round((parseFloat(p.a) || 0) * 100)), 0);
   const [dT, setDT] = useState<"pct" | "abs">("pct");
   const [dV, setDV] = useState("");
   const discC = () => dT === "pct"
@@ -207,7 +207,7 @@ export default function Pos() {
                 onChangeText={v => { const q = [...pays]; q[i] = { ...q[i], a: v }; setPays(q); }} />
             </View>))}
           {pays.length < 2
-            ? <TouchableOpacity onPress={() => setPays([...pays, { m: "mpesa", a: ((eff() - paidC()) / 100).toFixed(2) }])}>
+            ? paidC() < eff() && <TouchableOpacity onPress={() => setPays([...pays, { m: "mpesa", a: (Math.max(0, eff() - paidC()) / 100).toFixed(2) }])}>
                 <Text style={{ color: "#8b5cf6", fontWeight: "700", marginBottom: 8 }}>+ Split payment</Text></TouchableOpacity>
             : <TouchableOpacity onPress={() => setPays([pays[0]])}>
                 <Text style={{ color: "#6d6790", marginBottom: 8 }}>Remove split</Text></TouchableOpacity>}

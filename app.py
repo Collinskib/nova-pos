@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """POS & Inventory Management System — Flask + SQLite."""
-import sqlite3, hashlib, secrets, json, os, uuid, urllib.request, socket, time
+import sqlite3, hashlib, secrets, json, os, re, uuid, urllib.request, urllib.error, socket, time
 from datetime import datetime, date, timezone, timedelta
 from functools import wraps
 from flask import Flask, request, jsonify, session, render_template, redirect
@@ -307,9 +307,67 @@ def need_device(f):
         return f(*a, **k)
     return w
 
+def _sb_public():
+    """Supabase URL + publishable anon key for browser-side auth (same project as web/mobile)."""
+    url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    anon = os.environ.get("SUPABASE_ANON_KEY", "")
+    if not anon:
+        cfg = os.path.join(BASE, "web", "config.js")
+        if os.path.exists(cfg):
+            m = re.search(r'anon:\s*"([^"]+)"', open(cfg).read())
+            anon = m.group(1) if m else ""
+    return url, anon
+
 @app.get("/")
 def index():
-    return render_template("login.html") if "uid" not in session else render_template("index.html")
+    if "uid" in session: return render_template("index.html")
+    url, anon = _sb_public()
+    return render_template("login.html", sb_url=url, sb_anon=anon)
+
+def _sb_api(path, token=None, params=None):
+    url, anon = _sb_public()
+    key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or anon
+    req = urllib.request.Request(url + path,
+        headers={"apikey": key, "Authorization": f"Bearer {token or key}"})
+    if params: req.full_url += "?" + params
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return r.status, json.loads(r.read() or b"null")
+    except urllib.error.HTTPError as e:
+        return e.code, None
+
+@app.post("/api/cloud_login")
+def cloud_login():
+    """Exchange a Supabase web session (Google/email sign-in on this page) for a hub session.
+    The cloud user must hold a membership for this hub's business; first login auto-provisions
+    a local staff row so sales/audit keep a real users.id."""
+    tok = (request.json or {}).get("access_token", "")
+    if not tok: return jsonify({"error": "no session token"}), 400
+    st, user = _sb_api("/auth/v1/user", token=tok)
+    if st != 200 or not user: return jsonify({"error": "invalid or expired cloud session"}), 401
+    uid, email = user["id"], user.get("email") or user.get("phone") or user["id"]
+    bid = os.environ.get("CLOUD_BUSINESS_ID", "")
+    role = "cashier"
+    if bid:
+        st, ms = _sb_api("/rest/v1/business_memberships",
+            params=f"user_id=eq.{uid}&business_id=eq.{bid}&select=role")
+        if st != 200 or not ms:
+            return jsonify({"error": "This account isn't a member of this hub's business"}), 403
+        role = ms[0].get("role") or "cashier"
+    c = db()
+    uname = "cloud:" + email
+    u = c.execute("SELECT * FROM users WHERE username=?", (uname,)).fetchone()
+    if not u:
+        c.execute("INSERT INTO users(username,pw,name,role,must_change) VALUES(?,?,?,?,0)",
+                  (uname, _pw_hash(secrets.token_urlsafe(24)),
+                   user.get("user_metadata", {}).get("full_name") or email.split("@")[0],
+                   "admin" if role in ("admin", "owner") else "cashier"))
+        c.commit()
+        u = c.execute("SELECT * FROM users WHERE username=?", (uname,)).fetchone()
+        audit(c, "auth.user_provisioned", uname, actor="cloud")
+    session.update(uid=u["id"], name=u["name"], role=u["role"], must_change=False)
+    audit(c, "auth.cloud_login", email, actor=u["name"]); c.commit(); c.close()
+    return jsonify({"ok": True, "name": u["name"], "role": u["role"]})
 
 if os.environ.get("POS_DEV_SHOTS"):  # screenshot helper — only active when env var is set
     @app.get("/devlogin/<page>")
@@ -600,10 +658,12 @@ def checkout():
             promo_amt = round(total * float(pr["value"]) / 100, 2) if pr["kind"] == "pct" else round(min(float(pr["value"]), total), 2)
         inv_disc = round(float(d.get("discount") or 0) + promo_amt, 2)
         eff = round(max(0.0, total - inv_disc), 2)
+        pays = []
         if isinstance(d.get("payments"), list) and d["payments"]:
             pays = [{"method": str(p.get("method") or "cash"), "amount": round(float(p.get("amount") or 0), 2)}
-                    for p in d["payments"]]
-        else:
+                    for p in d["payments"]
+                    if float(p.get("amount") or 0) > 0 or str(p.get("method")) == "credit"]
+        if not pays:
             pays = [{"method": d.get("method", "cash"), "amount": round(float(d.get("cash", eff)), 2)}]
         cash = round(sum(p["amount"] for p in pays), 2)
         on_credit = any(p["method"] == "credit" for p in pays)
@@ -1042,6 +1102,8 @@ def apply_sale_event(c, dev, e):
     pays = p.get("payments") or [{"method": p.get("method") or "cash", "amount": paid}]
     for pay in pays:
         amt = round((pay.get("amount_cents") or 0) / 100, 2) if "amount_cents" in pay else round(float(pay.get("amount") or 0), 2)
+        if amt <= 0 and str(pay.get("method")) != "credit":
+            continue   # split-payment UI can emit negative/zero remainder rows — not real tenders
         c.execute("INSERT INTO payments(sale_id,method,amount,created) VALUES(?,?,?,?)",
                   (sid, str(pay.get("method") or "cash"), amt, utcts()))
 
@@ -1355,6 +1417,10 @@ def sync_push():
                  e.get("device_created_at"), json.dumps(e.get("payload") or {}), utcnow(), r[0]))
             c.execute("INSERT INTO sync_receipts(event_id,device_id,acked_at,status) VALUES(?,?,?,?)",
                       (eid, dev["id"], utcnow(), "accepted"))
+            c.execute("""INSERT OR IGNORE INTO sync_outbox(event_id,event_type,entity_id,payload,created_at)
+                         VALUES(?,?,?,?,?)""",
+                      (eid, e["event_type"], str(e.get("entity_id") or ""),
+                       json.dumps(e.get("payload") or {}), utcnow()))  # relay device → cloud
             accepted.append({"event_id": eid, "server_sequence": r[0]})
             try:
                 apply_incoming_event(c, dev, e)
@@ -1493,7 +1559,7 @@ CLOUD_BRANCH_UUID = os.environ.get("CLOUD_BRANCH_ID", "")
 def _cloud(method, path, payload=None):
     req = urllib.request.Request(CLOUD_URL + path, method=method,
         headers={"X-Hub-Key": CLOUD_KEY, "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, json.dumps(payload).encode() if payload is not None else None, timeout=15) as r:
+    with urllib.request.urlopen(req, json.dumps(payload).encode() if payload is not None else None, timeout=120) as r:
         return json.loads(r.read() or b"{}")
 
 @app.post("/api/admin/cloud-sync")

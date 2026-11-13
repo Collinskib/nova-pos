@@ -29,6 +29,9 @@
       <a id="fg" class="ref-link">Forgot Password</a>
     </div>
     <button type="submit" class="ref-login">Login</button>
+    {% if sb_url and sb_anon %}
+    <button type="button" class="ref-login" id="gbtn" style="background:#fff;color:#14102b;border:1px solid #e2def0;margin-top:10px">Continue with Google</button>
+    {% endif %}
     <p class="err" id="err"></p>
   </form>
   <div id="fgbox" class="hide">
@@ -43,6 +46,24 @@
   <p class="hint" id="sumsg" class="hide"></p>
   <p class="hint">demo: <code>admin / admin123</code> · <code>cashier / cashier123</code></p>
 </div>
+{% if sb_url and sb_anon %}
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const sb = supabase.createClient({{ sb_url|tojson }}, {{ sb_anon|tojson }});
+let _cloudDone = false;
+async function cloudLogin(access_token) {
+  if (_cloudDone) return; _cloudDone = true;
+  const r = await fetch('/api/cloud_login', {method:'POST',headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({access_token})});
+  if (r.ok) location.reload();
+  else { err.textContent = (await r.json()).error; _cloudDone = false; }
+}
+// Returning from Google? supabase-js exchanges the ?code= automatically on init.
+sb.auth.getSession().then(({data:{session}}) => { if (session) cloudLogin(session.access_token); });
+sb.auth.onAuthStateChange((ev, sess) => { if (ev === 'SIGNED_IN' && sess) cloudLogin(sess.access_token); });
+gbtn.onclick = () => sb.auth.signInWithOAuth({provider:'google', options:{redirectTo: location.origin + '/'}});
+</script>
+{% endif %}
 <script>
 eye.onclick=()=>{const o=pw.type==='password';pw.type=o?'text':'password';eye.classList.toggle('on',o)};
 su.onclick=()=>{sumsg.textContent='Accounts are created by your admin — ask them to add you under Users.';sumsg.classList.remove('hide')};

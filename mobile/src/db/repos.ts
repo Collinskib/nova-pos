@@ -50,7 +50,7 @@ export const seedProducts = (ctx: any, items: any[], base = "") =>
     .then(() => run(d, "ALTER TABLE products ADD COLUMN pack_price_cents INTEGER").catch(() => {}))
     .then(() => run(d,
     `INSERT OR REPLACE INTO products(id,business_id,barcode,name,price_cents,price_wholesale_cents,cost_cents,stock,taxable,discount_qty,discount_pct,image,parent_id,variant_label,pack_size,pack_price_cents,updated_at)
-     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [p.uuid || String(p.id) || uuid(), ctx.business, p.barcode, p.name, money(p.price),
      p.price_wholesale != null ? money(p.price_wholesale) : null, money(p.cost || 0),
      p.stock, p.taxable ?? 1, p.discount_qty, p.discount_pct, img, p.parent_id ?? null, p.variant_label ?? null,
@@ -102,14 +102,15 @@ export async function checkout(ctx: any, items: CartItem[], payments: { method: 
         ON CONFLICT(business_id,branch_id,product_id) DO UPDATE SET on_hand=on_hand+excluded.on_hand`,
         [ctx.business, ctx.branch, l.product_id, -l.qty]);
     }
-    for (const p of payments) {
-      const a = money(p.amount);
-      if (a > 0) await run(d, "INSERT INTO payments(id,sale_id,method,amount_cents,created_at) VALUES(?,?,?,?,?)",
-        [uuid(), id, p.method, a, now()]);
-    }
+    const payRows = payments
+      .map(p => ({ method: p.method, amount_cents: money(p.amount) }))
+      .filter(p => p.amount_cents > 0);
+    for (const p of payRows)
+      await run(d, "INSERT INTO payments(id,sale_id,method,amount_cents,created_at) VALUES(?,?,?,?,?)",
+        [uuid(), id, p.method, p.amount_cents, now()]);
     const event_id = await emit(d, ctx, "SALE_CREATED", id,
       { sale_id: id, receipt_no: receipt, total_cents: total, tax_cents: tax, discount_cents: disc, items: lines,
-        paid_cents: payCents, payments: payments.map(p => ({ method: p.method, amount_cents: money(p.amount) })),
+        paid_cents: payRows.reduce((a, p) => a + p.amount_cents, 0), payments: payRows,
         cashier_name: ctx.cashier_name || null, customer_name: customer || null, promo_code: promo || null });
     return { id, receipt_no: receipt, total_cents: total, tax_cents: tax, event_id };
   });

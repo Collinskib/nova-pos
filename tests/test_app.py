@@ -264,3 +264,98 @@ def test_shift_cash_moves_in_expected(client):
     assert client.post("/api/v1/shifts/cash-move", json={"kind": "in", "amount": 50}, headers=h).status_code == 200
     r = client.post("/api/v1/shifts/close", json={"count": 850}, headers=h).get_json()
     assert r["expected"] == 850.0 and r["difference"] == 0.0
+
+# ---------- cloud login: Supabase session → local hub session ----------
+def test_cloud_login_rejects_bad_token(client, monkeypatch):
+    monkeypatch.setattr(appmod, "_sb_api", lambda *a, **k: (401, None))
+    assert client.post("/api/cloud_login", json={"access_token": "bogus"}).status_code == 401
+    assert client.post("/api/cloud_login", json={}).status_code == 400
+
+def test_cloud_login_rejects_non_member(client, monkeypatch):
+    def fake(path, token=None, params=None):
+        if path == "/auth/v1/user":
+            return 200, {"id": "u-1", "email": "outsider@x.com"}
+        return 200, []
+    monkeypatch.setattr(appmod, "_sb_api", fake)
+    monkeypatch.setenv("CLOUD_BUSINESS_ID", "biz-1")
+    r = client.post("/api/cloud_login", json={"access_token": "t"})
+    assert r.status_code == 403
+
+def test_cloud_login_provisions_owner_as_admin(client, monkeypatch):
+    def fake(path, token=None, params=None):
+        if path == "/auth/v1/user":
+            return 200, {"id": "u-2", "email": "jane@x.com",
+                         "user_metadata": {"full_name": "Jane C"}}
+        return 200, [{"role": "owner"}]
+    monkeypatch.setattr(appmod, "_sb_api", fake)
+    monkeypatch.setenv("CLOUD_BUSINESS_ID", "biz-1")
+    r = client.post("/api/cloud_login", json={"access_token": "t"})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["role"] == "admin" and body["name"] == "Jane C"
+    c = appmod.db()
+    u = c.execute("SELECT * FROM users WHERE username='cloud:jane@x.com'").fetchone()
+    assert u is not None and u["role"] == "admin"
+    # repeat login reuses the provisioned row — no duplicates
+    r2 = client.post("/api/cloud_login", json={"access_token": "t"})
+    assert r2.status_code == 200
+    assert c.execute("SELECT COUNT(*) FROM users WHERE username='cloud:jane@x.com'").fetchone()[0] == 1
+    # the exchanged session is a real staff session
+    assert client.get("/api/bootstrap").status_code == 200
+
+def test_cloud_login_staff_maps_to_cashier(client, monkeypatch):
+    def fake(path, token=None, params=None):
+        if path == "/auth/v1/user":
+            return 200, {"id": "u-3", "email": "bob@x.com"}
+        return 200, [{"role": "staff"}]
+    monkeypatch.setattr(appmod, "_sb_api", fake)
+    monkeypatch.setenv("CLOUD_BUSINESS_ID", "biz-1")
+    r = client.post("/api/cloud_login", json={"access_token": "t"})
+    assert r.get_json()["role"] == "cashier"
+
+# ---------- payment-row guards: non-positive tenders never persist ----------
+def test_checkout_drops_nonpositive_payment_rows(client):
+    pid = mkproduct(client, price=100.0)
+    r = client.post("/api/checkout", json={"items": [{"id": pid, "qty": 1}],
+        "payments": [{"method": "cash", "amount": 3569}, {"method": "mpesa", "amount": -3469}]})
+    assert r.status_code == 200
+    c = appmod.db()
+    sid = c.execute("SELECT id FROM sales ORDER BY id DESC LIMIT 1").fetchone()["id"]
+    pays = c.execute("SELECT method,amount FROM payments WHERE sale_id=?", (sid,)).fetchall()
+    assert [(p["method"], p["amount"]) for p in pays] == [("cash", 3569.0)]
+    s = c.execute("SELECT cash,change_due FROM sales WHERE id=?", (sid,)).fetchone()
+    assert s["cash"] == 3569.0 and s["change_due"] == 3469.0
+
+def test_checkout_empty_payments_falls_back_to_cash(client):
+    pid = mkproduct(client, price=100.0)
+    r = client.post("/api/checkout", json={"items": [{"id": pid, "qty": 1}],
+        "payments": [{"method": "mpesa", "amount": 0}], "cash": 120})
+    assert r.status_code == 200 and r.get_json()["total"] == 100.0
+
+def test_device_sale_event_skips_nonpositive_payments(client):
+    d = pair_device(client)
+    h = {"X-Device-Key": d["device_key"]}
+    ev = {"event_id": str(uuid.uuid4()), "event_type": "SALE_CREATED", "device_sequence": 1,
+          "entity_id": str(uuid.uuid4()),
+          "payload": {"receipt_no": "MOB-9", "total_cents": 83000, "paid_cents": 356900,
+                      "items": [{"product_id": "x", "name": "T", "qty": 1, "total_cents": 83000}],
+                      "payments": [{"method": "cash", "amount_cents": 356900},
+                                   {"method": "mpesa", "amount_cents": -273900},
+                                   {"method": "card", "amount_cents": 0}]}}
+    r = client.post("/api/v1/sync/push", json={"events": [ev]}, headers=h)
+    assert r.status_code == 200
+    c = appmod.db()
+    s = c.execute("SELECT * FROM sales WHERE invoice_no='MOB-9'").fetchone()
+    assert s is not None and s["cash"] == 3569.0 and s["change_due"] == 2739.0
+    pays = c.execute("SELECT method,amount FROM payments WHERE sale_id=?", (s["id"],)).fetchall()
+    assert [(p["method"], p["amount"]) for p in pays] == [("cash", 3569.0)]
+
+def test_cloud_pay_amounts_drops_nonpositive():
+    import cloud_api
+    rows = cloud_api._pay_amounts({"payments": [
+        {"method": "cash", "amount_cents": 356900},
+        {"method": "mpesa", "amount_cents": -273900},
+        {"method": "card", "amount": 0},
+        {"method": "credit", "amount_cents": 0}]})
+    assert rows == [{"method": "cash", "amount": 3569.0},
+                    {"method": "credit", "amount": 0.0}]

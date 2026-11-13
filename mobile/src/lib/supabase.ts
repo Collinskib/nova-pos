@@ -10,6 +10,22 @@ export const sb = createClient(
 
 export type Membership = { business_id: string; role: string; business: string; branches: { id: string; name: string }[] };
 
+// Same bridge the web app uses (web/config.js) — auth/onboarding go here, not the hub.
+export const CLOUD_BASE = "https://shujaapos.onrender.com";
+
+export async function cloudApi(path: string, body?: any) {
+  const { data } = await sb.auth.getSession();
+  const r = await fetch(CLOUD_BASE + path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(data.session ? { Authorization: `Bearer ${data.session.access_token}` } : {}) },
+    body: JSON.stringify(body ?? {}) });
+  return r.json();
+}
+
+export async function onboard(business_name: string, branch_name: string) {
+  return cloudApi("/api/onboarding", { business_name, branch_name });
+}
+
 export async function memberships(): Promise<Membership[]> {
   const { data, error } = await sb.from("business_memberships").select("business_id, role");
   if (error) throw error;

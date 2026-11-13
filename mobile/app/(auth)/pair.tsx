@@ -6,12 +6,13 @@ import { useStore } from "../../src/store/store";
 import { seedProducts } from "../../src/db/repos";
 import { startSync } from "../../src/sync/engine";
 import { sb } from "../../src/lib/supabase";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 
 export default function Pair() {
-  const [token, setToken] = useState("");
-  const [url, setUrl] = useState("");
+  const params = useLocalSearchParams<{ token?: string; hub?: string }>();
+  const [token, setToken] = useState(params.token ?? "");
+  const [url, setUrl] = useState(params.hub ?? "");
   const [busy, setBusy] = useState(false);
   const [users, setUsers] = useState<any[]>([]);
   const pendingCtx = useRef<any>(null);
@@ -117,7 +118,8 @@ export default function Pair() {
         <TextInput style={s.in} placeholder="Hub URL (e.g. http://192.168.18.9:5050)" placeholderTextColor="#8b86a8"
           value={url} onChangeText={setUrl} autoCapitalize="none" keyboardType="url" />
         <TextInput style={[s.in, { letterSpacing: 3 }]} placeholder="PAIR CODE" placeholderTextColor="#8b86a8"
-          value={token} onChangeText={setToken} autoCapitalize="characters" />
+          value={token} onChangeText={setToken} autoCapitalize="characters" autoCorrect={false}
+          autoComplete="off" keyboardType="visible-password" />
         <TouchableOpacity style={s.btn} onPress={pair} disabled={busy || !token.trim()}>
           <Text style={s.btnT}>{busy ? "Pairing…" : "Pair device"}</Text>
         </TouchableOpacity>

@@ -125,8 +125,18 @@ def _pay_amounts(p):
     out = []
     for pay in p.get("payments") or []:
         amt = round((pay.get("amount_cents") or 0) / 100, 2) if "amount_cents" in pay else round(float(pay.get("amount") or 0), 2)
+        if amt <= 0 and str(pay.get("method")) != "credit":
+            continue   # non-positive remainder rows from split-tender UI are not real payments
         out.append({"method": str(pay.get("method") or "cash"), "amount": amt})
     return out
+
+def _amt(d, *names):
+    """Read a money field in either dialect: `x_cents` (int cents) or plain float."""
+    for n in names:
+        if n in d and d[n] is not None:
+            v = d[n]
+            return round(v / 100, 2) if n.endswith("_cents") else float(v)
+    return 0.0
 
 def apply_event(e):
     """Project an accepted event into central records (spec §3 cloud API role).
@@ -137,9 +147,10 @@ def apply_event(e):
         row = {"business_id": bid, "branch_id": brid, "device_id": e["device_id"],
             **({"id": e["entity_id"]} if _is_uuid(e.get("entity_id")) else {}),
             "receipt_number": p.get("invoice_no") or p.get("receipt_no") or e["event_id"][:12],
-            "subtotal": p.get("subtotal", p.get("total", 0)),
-            "discount_total": p.get("discount", 0), "tax_total": p.get("vat", 0) if p.get("vat") is not None else p.get("tax", 0),
-            "total": p.get("total", 0), "created_at": e.get("device_created_at") or utcnow()}
+            "subtotal": _amt(p, "subtotal", "subtotal_cents", "total", "total_cents"),
+            "discount_total": _amt(p, "discount", "discount_cents"),
+            "tax_total": _amt(p, "vat", "tax", "tax_cents"),
+            "total": _amt(p, "total", "total_cents"), "created_at": e.get("device_created_at") or utcnow()}
         extras = {k: v for k, v in {"customer_name": p.get("customer_name"), "client_ref": p.get("client_ref")}.items() if v}
         sale = pg("POST", "sales", {**row, **extras})
         if isinstance(sale, dict):  # columns may predate migration 0003
@@ -153,8 +164,9 @@ def apply_event(e):
                 pu = i.get("product_uuid") or str(uuid.uuid5(uuid.NAMESPACE_DNS, str(i.get("product_id"))))
                 pg("POST", "sale_items", {"sale_id": sid, "business_id": bid,
                     "product_id": pu,
-                    "quantity": i.get("qty", 0), "unit_price": i.get("unit_price", i.get("total", 0) / max(i.get("qty", 1), 1)),
-                    "line_total": i.get("total", 0)})
+                    "quantity": i.get("qty", 0),
+                    "unit_price": _amt(i, "unit_price", "unit_price_cents") or _amt(i, "total", "total_cents") / max(i.get("qty", 1), 1),
+                    "line_total": _amt(i, "total", "total_cents", "line_total")})
                 pg("POST", "stock_movements", {"business_id": bid, "branch_id": brid,
                     "product_id": pu,
                     "movement_type": "SALE", "quantity_delta": -float(i.get("qty", 0)),
