@@ -73,3 +73,30 @@ Test residue: WEB-000730 predates the entity_id fix (NULL entity) so it never pr
 - Production deploys (Vercel web, cloud hosting, `CONF.api`/`YOURDOMAIN`) — needs approval.
 - `SUPABASE_DB_URL` password stale — direct psql unavailable; Management API works.
 - Real-device verification of the Expo till — needs a physical device/emulator.
+
+## Cycle 4 — real-hardware + emulator mobile verification (Nov 13)
+
+Device targets: physical phone (Expo Go, LAN) and Android emulator `shujaa` (Pixel 6, API 35) via adb reverse → hub `localhost:5050`.
+
+**Bugs found & fixed live on device:**
+
+| Finding | Fix | Verified |
+|---|---|---|
+| Products seed INSERT: 17 cols / 18 placeholders — pairing crashed post-success | `repos.ts` placeholder count | pair → seed → till on emulator |
+| Device sales never relayed to cloud — `sync_outbox` only held hub-originated events | hub enqueues accepted device events for cloud push | MOB-000010–16 in Supabase |
+| `_cloud` 15s timeout killed a 31-event push mid-flight | raised to 120s | `unacked: 0` after autosync |
+| Cloud projector read only float money → mobile `_cents` events wrote total 0.0 | `_amt()` dialect normalizer | all 6 cloud sales corrected |
+| Mobile decoded hub `payload` JSON *string* as object → `EXT-*` zero-total shells + product forks | `payloadOf()` boundary decode + normalized inbox + repair v4 (EXT-* shells, orphan rows, uuid forks, negative payments) | Today/Sales show real receipts/totals |
+| Negative split-tender rows persisted (mobile emit + hub + cloud projectors) | guard `amt<=0 && method!='credit'` on all three emit/project paths | MOB-000015 shows single cash row |
+| Pull projectors (STOCK_MOVED, sale items, returns/purchases) matched only raw event id → silent stock skips | `productKey()` (int id / uuid5 / barcode) everywhere | catalog deduplicated, stock converged |
+| No open-shift gate — sales posted with no till session | POS amber banner → Sync tab (best-effort, offline-safe) | banner verified on emulator |
+| Cart qty could exceed stock until checkout error | clamp `addToCart`/`setQty` at `stock` | tsc |
+| `businesses` RLS: enabled, zero policies — members saw nothing | migration 0005 read policy | member reads `Emu` |
+| Pair-code GBoard mangling | `autoCorrect=false`, `autoCapitalize=characters`, `visible-password`, deep-link prefill (token/hub params) | paired via `shujaa-pos://pair` intent |
+| Mobile had no signup/onboarding (dead-end "no membership") | signup mode + onboarding card → `/api/onboarding` on `shujaapos.onrender.com` | full flow on emulator |
+| Desktop hub had no cloud sign-in | `/api/cloud_login`: Supabase token verify + membership check + local provisioning | real token: 403 non-member → 200 member |
+| Google OAuth on mobile | `expo-web-browser` round-trip + deep-link listener fallback + redirect allow-list (`shujaa-pos://**`, `exp://**`) | Google page + project redirect verified; **real-account return-to-app still pending** |
+
+**Regression:** 30 Flask tests pass (incl. cloud_login invalid/non-member/provisioning + payment guards); `tsc --noEmit` clean throughout; lockfile consistent (expo-web-browser 58.0.8).
+
+**Still blocked on external:** Google OAuth return-to-app needs a real Google account; SEC-9 secret rotation needs Google Cloud console; `SUPABASE_DB_URL` direct-psql password stale (Management API works).
