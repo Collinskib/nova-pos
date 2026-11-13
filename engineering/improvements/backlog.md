@@ -15,7 +15,7 @@
 
 ## P1 remaining — needs live Supabase or product decision
 
-- [~] BUG-8 atomic stock adjust — `adjust_stock_balance` RPC written (migration 0004) + wired in `cloud_api.py` with fallback; **needs live apply + verify**
+- [x] BUG-8 atomic stock adjust — `adjust_stock_balance` RPC (migration 0004) applied to live Supabase; verified 90→91→90 roundtrip via PostgREST, `cloud_api.py` on the atomic path
 - [x] BUG-26 `sync_events.event_id` UNIQUE — verified already present in `0001_foundation.sql`; 409 dedupe path exercised
 - [x] SEC-1 PBKDF2-60k password hashing + transparent sha256→pbkdf2 re-hash on login (regression-tested)
 - [ ] SEC-9 rotate Google OAuth secret + purge from history

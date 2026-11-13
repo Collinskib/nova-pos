@@ -6,6 +6,7 @@ import { hub, creds } from "../../src/lib/api";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useStore } from "../../src/store/store";
 import { fmt } from "../_layout";
+import { router } from "expo-router";
 
 export default function Pos() {
   const [q, setQ] = useState("");
@@ -25,6 +26,16 @@ export default function Pos() {
   };
   const [refreshing, setRefreshing] = useState(false);
   const [rc, setRc] = useState<any>(null);
+  const [noShift, setNoShift] = useState(false);
+  useEffect(() => {
+    (async () => {
+      try {
+        const c = await creds.load(); if (!c) return;
+        const r = await hub.shiftCurrent(await hub.base(), c.device_key);
+        setNoShift(!r.shift);
+      } catch {}   // hub unreachable — offline till, shift state unknown
+    })();
+  }, []);
   const [pays, setPays] = useState<{ m: string; a: string }[]>([{ m: "cash", a: "" }]);
   const paidC = () => pays.reduce((a, p) => a + Math.max(0, Math.round((parseFloat(p.a) || 0) * 100)), 0);
   const [dT, setDT] = useState<"pct" | "abs">("pct");
@@ -100,6 +111,10 @@ export default function Pos() {
           <TouchableOpacity style={s.cam} onPress={openScan}><Text style={{ fontSize: 18 }}>📷</Text></TouchableOpacity>
         </View>
       </View>
+      {noShift && (
+        <TouchableOpacity style={s.shiftWarn} onPress={() => router.push("/sync")}>
+          <Text style={s.shiftWarnT}>No open shift — sales won't reconcile to a till session. Tap to open one.</Text>
+        </TouchableOpacity>)}
       <FlatList data={prods.filter(p => !p.parent_id)} keyExtractor={p => p.id} numColumns={2} contentContainerStyle={{ padding: 8 }}
         refreshing={refreshing} onRefresh={pullRefresh}
         renderItem={({ item: p }) => (
@@ -257,6 +272,8 @@ const rcText = (rc: any) => rc ? [
 
 const s = StyleSheet.create({
   c: { flex: 1, backgroundColor: "#14102b", paddingTop: 56 },
+  shiftWarn: { backgroundColor: "#3a2f14", borderBottomWidth: 1, borderColor: "#f0a51f", paddingHorizontal: 14, paddingVertical: 9 },
+  shiftWarnT: { color: "#f0c56a", fontSize: 12, fontWeight: "700" },
   top: { paddingHorizontal: 14 },
   brand: { color: "#fff", fontSize: 20, fontWeight: "800", marginBottom: 8 },
   search: { backgroundColor: "#1e1840", borderRadius: 12, padding: 13, color: "#fff", fontSize: 15 },

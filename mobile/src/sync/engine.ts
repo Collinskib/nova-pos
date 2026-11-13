@@ -19,6 +19,17 @@ function payloadOf(raw: any): any {
   return (v && typeof v === "object") ? v : {};
 }
 
+// Resolve an event's product reference (int id, uuid5, or barcode) to the
+// local catalog key — events and /api/v1/products use different id dialects.
+async function productKey(d: any, refs: { product_id?: any; product_uuid?: any; barcode?: any; entity?: any }): Promise<string | null> {
+  const pid = String(refs.product_id ?? refs.product_uuid ?? refs.entity ?? "");
+  const ex = await one<{ id: string }>(d,
+    `SELECT id FROM products WHERE id=? OR id=?
+      OR (barcode IS NOT NULL AND barcode != '' AND barcode=?) LIMIT 1`,
+    [pid, String(refs.product_uuid ?? ""), refs.barcode ?? ""]);
+  return ex?.id ?? null;
+}
+
 async function applyEvent(d: any, e: any) {
   e = { ...e, payload: payloadOf(e.payload) };
   // inbound events are stored + deduped by event_id before this is called
@@ -29,17 +40,10 @@ async function applyEvent(d: any, e: any) {
     await run(d, "ALTER TABLE products ADD COLUMN variant_label TEXT").catch(() => {});
     await run(d, "ALTER TABLE products ADD COLUMN pack_size INTEGER").catch(() => {});
     await run(d, "ALTER TABLE products ADD COLUMN pack_price_cents INTEGER").catch(() => {});
-    // The catalog is seeded from /api/v1/products keyed by the hub's int id
-    // (its table has no uuid column); events may carry entity_id as uuid5.
-    // Resolve the existing row by int id, uuid, or barcode so a dialect
-    // mismatch never forks a product into two rows.
+    // Resolve the existing row so a dialect mismatch never forks a product
+    // into two rows (event ids vs the int-keyed seeded catalog).
     const pid = String(p.product_id ?? p.product_uuid ?? e.entity_id);
-    const bc = p.barcode ?? "";
-    const ex = await one<{ id: string }>(d,
-      `SELECT id FROM products WHERE id=? OR id=?
-        OR (barcode IS NOT NULL AND barcode != '' AND barcode=?) LIMIT 1`,
-      [pid, String(p.product_uuid ?? ""), bc]);
-    const key = ex?.id ?? pid;
+    const key = (await productKey(d, { ...p, entity: e.entity_id })) ?? pid;
     await run(d, `INSERT OR REPLACE INTO products(id,business_id,barcode,name,price_cents,price_wholesale_cents,cost_cents,stock,taxable,parent_id,variant_label,pack_size,pack_price_cents,updated_at)
       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [key, e.business_id, p.barcode, p.name,
       Math.round((p.price || 0) * 100), p.price_wholesale != null ? Math.round(p.price_wholesale * 100) : null,
@@ -90,7 +94,7 @@ async function applyEvent(d: any, e: any) {
          f(p.discount_cents ?? p.discount), f(p.tax_cents ?? p.vat ?? p.tax), total,
          e.device_created_at || new Date().toISOString(), p.cashier_name || null, p.customer_name || null]);
       for (const i of p.items || []) {
-        const pid = String(i.product_id ?? i.product_uuid ?? "");
+        const pid = (await productKey(d, i)) ?? String(i.product_id ?? i.product_uuid ?? "");
         const lt = i.total_cents != null ? i.total_cents : Math.round((i.total || 0) * 100);
         const up = i.unit_price_cents != null ? i.unit_price_cents : Math.round((i.unit_price ?? (i.total || 0) / Math.max(i.qty || 1, 1)) * 100);
         await run(d, `INSERT INTO sale_items(id,sale_id,product_id,name,qty,unit_price_cents,total_cents)
@@ -127,10 +131,12 @@ async function applyEvent(d: any, e: any) {
     }
   }
   else if (e.event_type === "STOCK_MOVED") {
-    const p = e.payload, pid = String(p.product_id ?? p.product_uuid ?? "");
+    const p = e.payload;
+    let pid = String(p.product_id ?? p.product_uuid ?? e.entity_id ?? "");
     const qty = Number(p.quantity_delta || 0);
-    const prod = await one(d, "SELECT 1 x FROM products WHERE id=?", [pid]);
+    const prod = await productKey(d, { ...p, entity: e.entity_id });
     if (prod) {
+      pid = prod;
       await run(d, "UPDATE products SET stock=stock+? WHERE id=?", [qty, pid]);
       await run(d, `INSERT INTO stock_balances(business_id,branch_id,product_id,on_hand) VALUES(?,?,?,?)
         ON CONFLICT(business_id,branch_id,product_id) DO UPDATE SET on_hand=on_hand+excluded.on_hand`,
@@ -158,14 +164,17 @@ async function applyEvent(d: any, e: any) {
         await run(d, "INSERT INTO purchases(id,supplier_id,total_cents,note,created_at) VALUES(?,?,?,?,?)",
           [rid, null, Math.round((p.total || 0) * 100), p.note || "", e.device_created_at]);
       for (const i of p.items || []) {
-        const pid = String(i.product_id ?? i.product_uuid ?? ""), qty = Number(i.qty || 0);
+        const pid = (await productKey(d, i)) ?? String(i.product_id ?? i.product_uuid ?? ""), qty = Number(i.qty || 0);
         await run(d, `INSERT INTO ${itb}(id,${inb === "returns" ? "return_id" : "purchase_id"},product_id,qty${inb === "returns" ? ",total_cents" : ",cost_cents"})
           VALUES(?,?,?,?,?)`, [`${e.event_id}:${pid}`, rid, pid, qty,
           inb === "returns" ? Math.round((i.total || 0) * 100) : Math.round((i.cost || 0) * 100)]);
-        await run(d, "UPDATE products SET stock=stock+? WHERE id=?", [qty, pid]);
-        await run(d, `INSERT INTO stock_balances(business_id,branch_id,product_id,on_hand) VALUES(?,?,?,?)
-          ON CONFLICT(business_id,branch_id,product_id) DO UPDATE SET on_hand=on_hand+excluded.on_hand`,
-          [e.business_id, e.branch_id, pid, qty]);
+        const prod = await one(d, "SELECT 1 x FROM products WHERE id=?", [pid]);
+        if (prod) {
+          await run(d, "UPDATE products SET stock=stock+? WHERE id=?", [qty, pid]);
+          await run(d, `INSERT INTO stock_balances(business_id,branch_id,product_id,on_hand) VALUES(?,?,?,?)
+            ON CONFLICT(business_id,branch_id,product_id) DO UPDATE SET on_hand=on_hand+excluded.on_hand`,
+            [e.business_id, e.branch_id, pid, qty]);
+        }
       }
     }
   }

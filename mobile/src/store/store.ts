@@ -20,9 +20,9 @@ type State = {
 export const useStore = create<State>((set, get) => ({
   ctx: null, cart: {}, syncState: "offline", pending: 0, hubUp: false, lastSync: null, syncError: null,
   set: p => set(p),
-  addToCart: p => set(s => ({ cart: { ...s.cart, [p.id]: { ...p, qty: (s.cart[p.id]?.qty || 0) + 1 } } })),
+  addToCart: p => set(s => ({ cart: { ...s.cart, [p.id]: { ...p, qty: Math.min((s.cart[p.id]?.qty || 0) + 1, p.stock ?? Infinity) } } })),
   setQty: (id, qty) => set(s => { const c = { ...s.cart };
-    if (qty <= 0) delete c[id]; else c[id] = { ...c[id], qty }; return { cart: c }; }),
+    if (qty <= 0) delete c[id]; else c[id] = { ...c[id], qty: Math.min(qty, c[id].stock ?? qty) }; return { cart: c }; }),
   clearCart: () => set({ cart: {} }),
   cartTotal: () => Object.values(get().cart).reduce((a, i) =>
     a + Math.round(i.price_cents * i.qty * (1 - (i.discount_qty && i.qty >= i.discount_qty ? (i.discount_pct || 0) / 100 : 0))), 0),
