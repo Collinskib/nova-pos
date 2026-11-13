@@ -14,6 +14,7 @@ export default function Sync() {
   const [staff, setStaff] = useState<any[]>([]);
   const [sh, setSh] = useState<any>(null);
   const [shIn, setShIn] = useState("");
+  const [mvIn, setMvIn] = useState("");
   const [last, setLast] = useState<any>(null);
   const { syncState, pending, hubUp, lastSync, ctx, syncError, set } = useStore();
 
@@ -56,6 +57,22 @@ export default function Sync() {
           <Row k="Opened" v={new Date((sh.opened_at || "").replace(" ", "T") + "Z").toLocaleString()} />
           <Row k="By" v={sh.cashier_name} />
           <Row k="Float" v={ks(sh.opening_float)} />
+          <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
+            <TextInput style={[shInput, { flex: 1, marginBottom: 0 }]} placeholder="Cash in/out amount"
+              placeholderTextColor="#8b86a8" keyboardType="decimal-pad" value={mvIn} onChangeText={setMvIn} />
+            <TouchableOpacity style={[s.btn, { flex: 1 }]}
+              onPress={async () => { const c = await creds.load(); if (!c) return;
+                await hub.cashMove(await hub.base(), c.device_key,
+                  { kind: "in", amount: parseFloat(mvIn) || 0, cashier_name: ctx?.cashier_name });
+                setMvIn(""); reload(); }}>
+              <Text style={s.btnT}>+ In</Text></TouchableOpacity>
+            <TouchableOpacity style={[s.btn, { flex: 1, backgroundColor: "#8a6a1f" }]}
+              onPress={async () => { const c = await creds.load(); if (!c) return;
+                await hub.cashMove(await hub.base(), c.device_key,
+                  { kind: "out", amount: parseFloat(mvIn) || 0, cashier_name: ctx?.cashier_name });
+                setMvIn(""); reload(); }}>
+              <Text style={s.btnT}>− Out</Text></TouchableOpacity>
+          </View>
           <TextInput style={shInput} placeholder="Counted cash in drawer" placeholderTextColor="#8b86a8"
             keyboardType="decimal-pad" value={shIn} onChangeText={setShIn} />
           <TouchableOpacity style={[s.btn, { backgroundColor: "#e05a5a" }]}

@@ -7,7 +7,6 @@ X-Hub-Key; Supabase is reached via PostgREST with the service key — which
 never leaves this process (§4.3).
 """
 import os, json, urllib.request, urllib.error, uuid, time
-import uuid, time
 from datetime import datetime, timezone, timedelta
 from flask import Flask, request, jsonify
 from functools import wraps
@@ -110,36 +109,63 @@ EVENT_TYPES = {"SALE_CREATED","SALE_VOIDED","STOCK_MOVED","PRODUCT_CREATED","PRO
                "PRODUCT_DELETED","RETURN_POSTED","PURCHASE_RECEIVED","EXPENSE_POSTED",
                "TRANSFER_CREATED","TRANSFER_DISPATCH","TRANSFER_RECEIVE"}
 
+def _adj_balance(bid, brid, pid, delta):
+    """Atomic stock_balances += delta via RPC (migration 0004); falls back to
+    read-modify-write only when the function isn't deployed yet."""
+    r = pg("POST", "rpc/adjust_stock_balance",
+           {"p_business": bid, "p_branch": brid, "p_product": pid, "p_delta": float(delta)})
+    if isinstance(r, dict):
+        cur = pg("GET", "stock_balances", params=f"?product_id=eq.{pid}&branch_id=eq.{brid}&select=on_hand") or []
+        have = (float(cur[0]["on_hand"]) if cur else 0) + float(delta)
+        pg("POST", "stock_balances", {"business_id": bid, "branch_id": brid, "product_id": pid,
+            "on_hand": have, "rebuilt_at": utcnow()}, "?on_conflict=business_id,branch_id,product_id")
+
+def _pay_amounts(p):
+    """Normalize payment rows — mobile sends amount_cents, web/hub send amount."""
+    out = []
+    for pay in p.get("payments") or []:
+        amt = round((pay.get("amount_cents") or 0) / 100, 2) if "amount_cents" in pay else round(float(pay.get("amount") or 0), 2)
+        out.append({"method": str(pay.get("method") or "cash"), "amount": amt})
+    return out
+
 def apply_event(e):
     """Project an accepted event into central records (spec §3 cloud API role).
     Idempotent where the record carries a unique constraint; skipped types are
     kept in sync_events for a later projector."""
     t, p, bid, brid = e["event_type"], e.get("payload") or {}, e["business_id"], e["branch_id"]
     if t == "SALE_CREATED":
-        sale = pg("POST", "sales", {"business_id": bid, "branch_id": brid, "device_id": e["device_id"],
-            "receipt_number": p.get("invoice_no", e["event_id"][:12]), "subtotal": p.get("total", 0),
-            "discount_total": p.get("discount", 0), "tax_total": p.get("vat", 0),
-            "total": p.get("total", 0), "created_at": e.get("device_created_at") or utcnow()})
+        row = {"business_id": bid, "branch_id": brid, "device_id": e["device_id"],
+            **({"id": e["entity_id"]} if _is_uuid(e.get("entity_id")) else {}),
+            "receipt_number": p.get("invoice_no") or p.get("receipt_no") or e["event_id"][:12],
+            "subtotal": p.get("subtotal", p.get("total", 0)),
+            "discount_total": p.get("discount", 0), "tax_total": p.get("vat", 0) if p.get("vat") is not None else p.get("tax", 0),
+            "total": p.get("total", 0), "created_at": e.get("device_created_at") or utcnow()}
+        extras = {k: v for k, v in {"customer_name": p.get("customer_name"), "client_ref": p.get("client_ref")}.items() if v}
+        sale = pg("POST", "sales", {**row, **extras})
+        if isinstance(sale, dict):  # columns may predate migration 0003
+            sale = pg("POST", "sales", row)
         if isinstance(sale, list) and sale:
             sid = sale[0]["id"]
+            for pay in _pay_amounts(p):
+                pg("POST", "payments", {"sale_id": sid, "business_id": bid, "method": pay["method"],
+                    "amount": pay["amount"], "created_at": e.get("device_created_at") or utcnow()})
             for i in p.get("items", []):
+                pu = i.get("product_uuid") or str(uuid.uuid5(uuid.NAMESPACE_DNS, str(i.get("product_id"))))
                 pg("POST", "sale_items", {"sale_id": sid, "business_id": bid,
-                    "product_id": i.get("product_uuid") or uuid.uuid5(uuid.NAMESPACE_DNS, str(i.get("product_id"))).hex and str(uuid.uuid5(uuid.NAMESPACE_DNS, str(i.get("product_id")))),
-                    "quantity": i.get("qty", 0), "unit_price": i.get("total", 0) / max(i.get("qty", 1), 1),
+                    "product_id": pu,
+                    "quantity": i.get("qty", 0), "unit_price": i.get("unit_price", i.get("total", 0) / max(i.get("qty", 1), 1)),
                     "line_total": i.get("total", 0)})
                 pg("POST", "stock_movements", {"business_id": bid, "branch_id": brid,
-                    "product_id": str(uuid.uuid5(uuid.NAMESPACE_DNS, str(i.get("product_id")))),
+                    "product_id": pu,
                     "movement_type": "SALE", "quantity_delta": -float(i.get("qty", 0)),
                     "device_id": e["device_id"], "created_at": e.get("device_created_at") or utcnow()})
+                _adj_balance(bid, brid, pu, -float(i.get("qty", 0)))
     elif t == "STOCK_MOVED":
         pu = p.get("product_uuid") or str(uuid.uuid5(uuid.NAMESPACE_DNS, str(p.get("product_id"))))
         pg("POST", "stock_movements", {"business_id": bid, "branch_id": brid, "product_id": pu,
             "movement_type": p.get("movement_type", "STOCK_ADJUSTMENT"), "quantity_delta": p.get("quantity_delta", 0),
             "device_id": e["device_id"], "note": p.get("ref_no", ""), "created_at": e.get("device_created_at") or utcnow()})
-        cur = pg("GET", "stock_balances", params=f"?product_id=eq.{pu}&branch_id=eq.{brid}&select=on_hand") or []
-        have = (cur[0]["on_hand"] if cur else 0) + float(p.get("quantity_delta", 0))
-        pg("POST", "stock_balances", {"business_id": bid, "branch_id": brid, "product_id": pu,
-            "on_hand": have, "rebuilt_at": utcnow()}, "?on_conflict=business_id,branch_id,product_id")
+        _adj_balance(bid, brid, pu, float(p.get("quantity_delta", 0)))
     elif t in ("PRODUCT_CREATED", "PRODUCT_UPDATED"):
         pg("POST", "products", {"business_id": bid, "name": p.get("name"), "barcode": p.get("barcode"),
             "selling_price": p.get("price", 0), "cost_price": p.get("cost", 0),
@@ -148,17 +174,23 @@ def apply_event(e):
     elif t == "SALE_VOIDED":
         pg("PATCH", "sales", {"status": "void"}, f"?receipt_number=eq.{p.get('invoice_no')}&branch_id=eq.{brid}")
     elif t == "RETURN_POSTED":
-        for pid_, qty in [(i.get("product_id"), i.get("qty")) for i in p.get("items", [])]:
+        for i in p.get("items", []):
+            pu = i.get("product_uuid") or str(uuid.uuid5(uuid.NAMESPACE_DNS, str(i.get("product_id"))))
+            qty = float(i.get("qty") or 0)
             pg("POST", "stock_movements", {"business_id": bid, "branch_id": brid,
-                "product_id": str(uuid.uuid5(uuid.NAMESPACE_DNS, str(pid_))),
-                "movement_type": "SALE_RETURN", "quantity_delta": float(qty or 0),
+                "product_id": pu,
+                "movement_type": "SALE_RETURN", "quantity_delta": qty,
                 "device_id": e["device_id"], "created_at": e.get("device_created_at") or utcnow()})
+            _adj_balance(bid, brid, pu, qty)
     elif t == "PURCHASE_RECEIVED":
         for i in p.get("items", []):
+            pu = i.get("product_uuid") or str(uuid.uuid5(uuid.NAMESPACE_DNS, str(i.get("product_id"))))
+            qty = float(i.get("qty") or 0)
             pg("POST", "stock_movements", {"business_id": bid, "branch_id": brid,
-                "product_id": str(uuid.uuid5(uuid.NAMESPACE_DNS, str(i.get("product_id")))),
-                "movement_type": "PURCHASE_RECEIVED", "quantity_delta": float(i.get("qty", 0)),
+                "product_id": pu,
+                "movement_type": "PURCHASE_RECEIVED", "quantity_delta": qty,
                 "device_id": e["device_id"], "created_at": e.get("device_created_at") or utcnow()})
+            _adj_balance(bid, brid, pu, qty)
     elif t == "TRANSFER_CREATED":
         tr = pg("POST", "stock_transfers", {"business_id": bid, "from_branch_id": brid,
                 "to_branch_id": p.get("to_branch") if _is_uuid(p.get("to_branch")) else brid,
@@ -243,7 +275,9 @@ def push():
                 dup.append(eid); continue
             rejected.append({"event_id": eid, "reason": r.get("detail", "write_failed")}); continue
         try: apply_event({**row, "device_id": e.get("device_id"), "event_id": eid})
-        except Exception: pass  # durable event is stored; projection retried by a later pass
+        except Exception as ex:  # durable event stays; the failure is never silent
+            pg("POST", "sync_conflicts", {"event_id": eid, "device_id": e.get("device_id"),
+                "reason": "projection_failed", "detail": {"error": str(ex)[:300], "event_type": e["event_type"]}})
         accepted.append({"event_id": eid, "server_sequence": n})
     return jsonify({"ok": True, "accepted": accepted, "duplicates": dup, "rejected": rejected})
 
@@ -326,27 +360,27 @@ def web_sale():
         ex = pg("GET","sales",params=f"?branch_id=eq.{brid}&client_ref=eq.{cref}&select=receipt_number,total&limit=1")
         if isinstance(ex, list) and ex:
             return jsonify({"ok":True,"receipt":ex[0]["receipt_number"],"total":float(ex[0]["total"]),"dup":True})
-    disc = float(d.get("discount") or 0)
-    sub = sum(float(i["unit_price"])*float(i["qty"]) for i in items)
+    disc = max(0.0, float(d.get("discount") or 0))
+    sub = round(sum(float(i["unit_price"])*float(i["qty"]) for i in items), 2)
     total = max(0.0, round(sub - disc, 2))
     tax = round(total*16/116, 2)
-    now = datetime.now(timezone.utc).isoformat()
-    sid, receipt = str(uuid.uuid4()), "WEB-" + str(int(time.time()))
-    row = {"id":sid,"business_id":bid,"branch_id":brid,"device_id":_web_device(bid,brid),
-       "receipt_number":receipt,"subtotal":round(sub,2),"discount_total":disc,"tax_total":tax,
-       "total":total,"status":"completed","created_at":now}
-    res = pg("POST","sales",{**row, **{k:v for k,v in
-        {"customer_name":(d.get("customer_name") or "").strip() or None, "client_ref":cref or None}.items() if v}})
-    if isinstance(res, dict):  # columns may predate migration 0003 — retry without extras
-        res = pg("POST","sales",row)
-    pg("POST","sale_items",[{"sale_id":sid,"business_id":bid,"product_id":i["product_id"],
-       "quantity":i["qty"],"unit_price":i["unit_price"],"line_total":round(float(i["unit_price"])*float(i["qty"]),2)} for i in items])
-    if pays:
-        pg("POST","payments",[{"sale_id":sid,"business_id":bid,"method":p["method"],"amount":p["amount"],"created_at":now} for p in pays])
+    # stock guard: refuse the sale when a known balance can't cover it
     for i in items:
-        bal = pg("GET","stock_balances",params=f"?business_id=eq.{bid}&branch_id=eq.{brid}&product_id=eq.{i['product_id']}&select=id,on_hand&limit=1") or []
-        if bal: pg("PATCH","stock_balances",{"on_hand": float(bal[0]["on_hand"])-float(i["qty"])},params=f"?id=eq.{bal[0]['id']}")
-        else: pg("POST","stock_balances",{"business_id":bid,"branch_id":brid,"product_id":i["product_id"],"on_hand":-float(i["qty"])})
+        bal = pg("GET","stock_balances",params=f"?business_id=eq.{bid}&branch_id=eq.{brid}&product_id=eq.{i['product_id']}&select=on_hand&limit=1") or []
+        if bal and float(bal[0]["on_hand"]) < float(i["qty"]):
+            return jsonify({"error":"insufficient stock","product_id":i["product_id"]}), 400
+    # Write through the event store so hubs and other consumers see the sale.
+    n = pg("POST","rpc/alloc_sequence",{"p_branch":brid})
+    receipt = "WEB-" + str(n if not isinstance(n, dict) else int(time.time())).zfill(6)
+    suid = str(uuid.uuid4())  # entity_id == future sales.id, so voids propagate by sale_uuid
+    eid = _emit(bid, brid, _web_device(bid, brid), "SALE_CREATED", {
+        "sale_uuid": suid, "invoice_no": receipt, "subtotal": sub, "total": total, "vat": tax, "discount": round(disc, 2),
+        "customer_name": (d.get("customer_name") or "").strip() or None, "client_ref": cref or None,
+        "payments": [{"method": p.get("method", "cash"), "amount": float(p.get("amount") or 0)} for p in pays],
+        "items": [{"product_id": i["product_id"], "product_uuid": i["product_id"], "qty": float(i["qty"]),
+                   "unit_price": float(i["unit_price"]), "total": round(float(i["unit_price"])*float(i["qty"]), 2),
+                   "name": i.get("name")} for i in items]}, entity=suid)
+    if not eid: return jsonify({"error":"emit failed"}), 500
     return jsonify({"ok":True,"receipt":receipt,"total":total})
 
 @app.get("/api/web/sale/<sid>")
@@ -381,13 +415,14 @@ def web_sale_void(sid):
     brid = sale["branch_id"]
     for i in pg("GET","sale_items",params=f"?sale_id=eq.{sid}&select=product_id,quantity") or []:
         qty = float(i["quantity"])
-        bal = pg("GET","stock_balances",
-                 params=f"?business_id=eq.{bid}&branch_id=eq.{brid}&product_id=eq.{i['product_id']}&select=id,on_hand&limit=1") or []
-        if bal: pg("PATCH","stock_balances",{"on_hand": float(bal[0]["on_hand"])+qty},params=f"?id=eq.{bal[0]['id']}")
-        else: pg("POST","stock_balances",{"business_id":bid,"branch_id":brid,"product_id":i["product_id"],"on_hand":qty})
+        _adj_balance(bid, brid, i["product_id"], qty)
         pg("POST","stock_movements",{"business_id":bid,"branch_id":brid,"product_id":i["product_id"],
            "movement_type":"SALE_RETURN","quantity_delta":qty,"device_id":_web_device(bid,brid),
            "note":"void "+sid[:8],"created_at":now})
+    # Emit so hubs pulling cloud events void their local copy + restock.
+    rcpt = pg("GET","sales",params=f"?id=eq.{sid}&select=receipt_number&limit=1") or []
+    _emit(bid, brid, _web_device(bid, brid), "SALE_VOIDED",
+          {"invoice_no": rcpt[0]["receipt_number"] if rcpt else None, "sale_uuid": sid})
     return jsonify({"ok": True})
 
 @app.get("/api/web/reports")
@@ -496,7 +531,7 @@ def web_member_role(uid):
     if not _is_admin(u["id"], bid): return jsonify({"error":"admin only"}), 403
     role = (request.get_json(force=True).get("role") or "")
     if role not in ("admin","cashier","manager"): return jsonify({"error":"bad role"}), 400
-    if role == "cashier":
+    if role != "admin":  # any demotion — self-demotion and last-admin both blocked
         g = _admin_guard(u, bid, uid)
         if g: return jsonify({"error": g}), 400
     pg("PATCH","business_memberships",{"role":role},f"?business_id=eq.{bid}&user_id=eq.{uid}")
@@ -516,15 +551,18 @@ def web_member_remove(uid):
     pg("DELETE","branch_memberships",params=f"?business_id=eq.{bid}&user_id=eq.{uid}")
     return jsonify({"ok": True})
 
-def _emit(bid, brid, dev, etype, payload):
+def _emit(bid, brid, dev, etype, payload, entity=None):
     eid = str(uuid.uuid4())
     n = pg("POST","rpc/alloc_sequence",{"p_branch":brid})
     if isinstance(n, dict): return None
     row = {"event_id":eid,"business_id":bid,"branch_id":brid,"device_id":dev,"event_type":etype,
-           "schema_version":1,"device_created_at":utcnow(),"payload":payload,"server_sequence":n}
+           "schema_version":1,"device_created_at":utcnow(),"payload":payload,"server_sequence":n,
+           "entity_id":entity or eid}
     if isinstance(pg("POST","sync_events",row), dict): return None
     try: apply_event({**row,"device_id":dev,"event_id":eid})
-    except Exception: pass
+    except Exception as ex:
+        pg("POST","sync_conflicts",{"event_id":eid,"device_id":dev,"reason":"projection_failed",
+            "detail":{"error":str(ex)[:300],"event_type":etype}})
     return eid
 
 @app.post("/api/web/product")

@@ -164,27 +164,44 @@ const confirmM = (msg, label, fn) => {
 /* ---------- offline queue ---------- */
 const queue = () => JSON.parse(localStorage.getItem("shujaa_queue") || "[]");
 const saveQueue = q => localStorage.setItem("shujaa_queue", JSON.stringify(q));
-const dropped = () => +(localStorage.getItem("shujaa_dropped") || 0);
+const failed = () => JSON.parse(localStorage.getItem("shujaa_failed") || "[]");
+const saveFailed = f => localStorage.setItem("shujaa_failed", JSON.stringify(f));
 async function flushQueue() {
-  let q = queue(), fails = dropped();
+  let q = queue(), f = failed();
   while (q.length && navigator.onLine) {
     const r = await api("/api/web/sale", q[0]);
-    if (r.error && r.offline) break;
-    if (r.error) { fails++; localStorage.setItem("shujaa_dropped", fails); q = q.slice(1); continue; }
+    if (r.error && r.offline) break;                    // still down — stop, keep order
+    if (r.error) {                                       // deterministic rejection: keep the
+      f.push({...q[0], error: r.error, failed_at: new Date().toISOString()});  // data, don't drop it
+      q = q.slice(1); continue;
+    }
     q = q.slice(1);
   }
-  saveQueue(q);
+  saveQueue(q); saveFailed(f);
   syncBadge();
 }
 function syncBadge() {
   const el = document.getElementById("syncb");
   if (!el) return;
-  const n = queue().length, f = dropped();
+  const n = queue().length, f = failed().length;
   const off = !navigator.onLine;
   el.innerHTML = off || n || f
-    ? `<span class="badge ${off ? 'bad' : 'warn'}" title="${f ? f + ' sale(s) could not sync' : ''}">${off ? "Offline" : ""}${n ? ` · ${n} queued` : ""}${f && !n ? ` · ${f} failed` : ""}</span>`
+    ? `<span class="badge ${off || f ? 'bad' : 'warn'}" style="cursor:pointer" onclick="showFailed()"
+       title="Queued sales sync automatically. Failed sales are kept for review.">${off ? "Offline" : ""}${n ? ` · ${n} queued` : ""}${f ? ` · ${f} failed` : ""}</span>`
     : "";
 }
+function showFailed() {
+  const f = failed();
+  if (!f.length) { say("No failed sales.", "ok"); return; }
+  modal(`<h2>Failed to sync (${f.length})</h2>
+    <p class="sub">These sales were rejected by the server. Their data is kept here — re-enter them manually or discard.</p>
+    ${f.map((s, i) => `<div class="row between" style="padding:8px 0;border-bottom:1px solid var(--line)">
+      <div><b>${esc(s.client_ref || "?")}</b><div class="sub">${(s.items || []).length} item(s) · ${esc(s.error || "")}</div></div>
+      <button class="ghost" onclick="dismissFailed(${i})">Discard</button></div>`).join("")}
+    <div class="mrow"><button class="ghost" onclick="closeM()">Close</button>
+    <button class="danger" onclick="confirm_('Discard all failed sales?', () => { saveFailed([]); closeM(); syncBadge(); }, 'Discard all')">Discard all</button></div>`);
+}
+function dismissFailed(i) { const f = failed(); f.splice(i, 1); saveFailed(f); showFailed(); syncBadge(); }
 addEventListener("online", () => { syncBadge(); flushQueue(); });
 addEventListener("offline", syncBadge);
 

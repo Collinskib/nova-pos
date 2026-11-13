@@ -69,11 +69,12 @@ export async function checkout(ctx: any, items: CartItem[], payments: { method: 
   return tx(async d => {
     const id = uuid(), receipt = await nextReceipt(d);
     let sub = 0, tax = 0;
+    const rate = (parseFloat((await getState(d, "tax_rate")) ?? "16") || 16) / 100; // hub settings, default 16%
     const lines = items.map(i => {
       const disc = i.discount_qty && i.qty >= i.discount_qty ? (i.discount_pct || 0) / 100 : 0;
       const t = Math.round(i.price_cents * i.qty * (1 - disc));
       sub += t;
-      if (i.taxable) tax += Math.round(t * 0.16 / 1.16); // VAT-inclusive @16%
+      if (i.taxable) tax += Math.round(t * rate / (1 + rate)); // VAT-inclusive
       return { product_id: i.id, name: i.name, qty: i.qty, unit_price_cents: i.price_cents, total_cents: t };
     });
     const disc = Math.min(Math.max(0, discCents), sub);
@@ -110,7 +111,7 @@ export async function checkout(ctx: any, items: CartItem[], payments: { method: 
       { sale_id: id, receipt_no: receipt, total_cents: total, tax_cents: tax, discount_cents: disc, items: lines,
         paid_cents: payCents, payments: payments.map(p => ({ method: p.method, amount_cents: money(p.amount) })),
         cashier_name: ctx.cashier_name || null, customer_name: customer || null, promo_code: promo || null });
-    return { id, receipt_no: receipt, total_cents: total, event_id };
+    return { id, receipt_no: receipt, total_cents: total, tax_cents: tax, event_id };
   });
 }
 

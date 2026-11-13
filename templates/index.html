@@ -156,7 +156,7 @@ window.pick=id=>{const p=S.products.find(x=>x.id===id);const opts=S.products.fil
 window.pickOpt=id=>{closeM();
   if(String(id)[0]==='p'){const p=S.products.find(x=>x.id===+String(id).slice(1));
     const up=Math.round((p.pack_price??pp(p)*p.pack_size)/p.pack_size*100)/100;
-    S.cart.push({id:p.id,name:p.name+` · pack ×${p.pack_size}`,price:up,qty:p.pack_size,taxable:p.taxable??1,dq:0,dp:0});drawCart();return}
+    S.cart.push({id:p.id,pack:1,name:p.name+` · pack ×${p.pack_size}`,price:up,qty:p.pack_size,taxable:p.taxable??1,dq:0,dp:0});drawCart();return}
   const p=S.products.find(x=>x.id===+id);const it=S.cart.find(x=>x.id===+id);
   const nm=p.variant_label?p.name+' · '+p.variant_label:p.name;
   it?it.qty++:S.cart.push({id:+id,name:nm,price:pp(p),qty:1,taxable:p.taxable??1,dq:p.discount_qty||0,dp:p.discount_pct||0});drawCart()};
@@ -193,7 +193,7 @@ window.heldCount=async()=>{const hs=await api('/api/held');const b=document.getE
 window.doPay=async(btn,t)=>{const need=Math.max(0,t-(+pdisc.value||0));
   if(pm.value!=='credit'&&+cash.value<need)return toast('Cash received is less than the total',1);
   btn.disabled=true;btn.textContent='Charging…';
-  try{const r=await api('/api/checkout',{method:'POST',body:{items:S.cart,cash:+cash.value||need,method:pm.value,customer_name:pcust.value||undefined,discount:+pdisc.value||0,promo_code:(ppromo.value||'').trim().toUpperCase()||undefined}});
+  try{const r=await api('/api/checkout',{method:'POST',body:{items:S.cart,cash:+cash.value||need,method:pm.value,price_list:S.plist==='w'?'wholesale':'retail',customer_name:pcust.value||undefined,discount:+pdisc.value||0,promo_code:(ppromo.value||'').trim().toUpperCase()||undefined}});
   closeM();S.cart=[];pgPos();
   const rc=await api('/api/receipt/'+r.id);
   modal(`<h3>Receipt · ${r.invoice}</h3><div class="rc" id="rc">${rcHtml(rc)}</div>

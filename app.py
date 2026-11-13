@@ -1,11 +1,20 @@
 #!/usr/bin/env python3
 """POS & Inventory Management System — Flask + SQLite."""
-import sqlite3, hashlib, secrets, json, os, uuid, urllib.request, socket
+import sqlite3, hashlib, secrets, json, os, uuid, urllib.request, socket, time
 from datetime import datetime, date, timezone, timedelta
 from functools import wraps
 from flask import Flask, request, jsonify, session, render_template, redirect
 
 BASE = os.path.dirname(os.path.abspath(__file__))
+def _load_dotenv(path=os.path.join(BASE, ".env")):
+    """Tiny .env loader so autosync/config work when app.py isn't wrapped by dotenv."""
+    if not os.path.exists(path): return
+    for line in open(path):
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line: continue
+        k, _, v = line.partition("=")
+        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+_load_dotenv()
 DB = os.path.join(BASE, "pos.db")
 app = Flask(__name__)
 KEY_FILE = os.path.join(BASE, ".secret_key")
@@ -140,6 +149,18 @@ CREATE TABLE IF NOT EXISTS batches(
   qty REAL, expiry TEXT, created_at TEXT);
 """)
 
+# 0011 — cash drawer movements (petty cash in/out mid-shift) + credit ledger
+mig(11, """
+CREATE TABLE IF NOT EXISTS cash_movements(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, shift_id INTEGER, device_id INTEGER,
+  kind TEXT, amount REAL, note TEXT, user_name TEXT, created_at TEXT);
+CREATE TABLE IF NOT EXISTS credit_payments(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, uuid TEXT UNIQUE, customer_id INTEGER,
+  sale_id INTEGER, kind TEXT, amount REAL, note TEXT, created_at TEXT);
+ALTER TABLE customers ADD COLUMN balance REAL DEFAULT 0;
+ALTER TABLE sales ADD COLUMN customer_id INTEGER;
+""")
+
 DEFAULT_BUSINESS, DEFAULT_BRANCH = 1, 1
 
 def apply_migrations(c):
@@ -171,7 +192,7 @@ def init_db():
     try: c.execute("ALTER TABLE users ADD COLUMN must_change INTEGER DEFAULT 0")
     except sqlite3.OperationalError: pass
     if not c.execute("SELECT 1 FROM users LIMIT 1").fetchone():
-        h = lambda p: hashlib.sha256(p.encode()).hexdigest()
+        h = _pw_hash
         c.execute("INSERT INTO users(username,pw,name,role) VALUES(?,?,?,?)", ("admin", h("admin123"), "Store Admin", "admin"))
         c.execute("INSERT INTO users(username,pw,name,role) VALUES(?,?,?,?)", ("cashier", h("cashier123"), "Jane Cashier", "cashier"))
         cats, brands, sups = ["Beverages","Snacks","Dairy","Household","Personal Care"], ["Coca-Cola","Nestlé","Local Farm","Generic"], [("Metro Wholesale","Sam Diaz","555-0100","4 Depot Rd"),("FarmDirect","Ana Ruiz","555-0142","88 Field Ln")]
@@ -208,6 +229,25 @@ def rows(c, q, p=()): return [dict(r) for r in c.execute(q, p).fetchall()]
 
 def utcnow():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+def utcts():
+    """Naive UTC timestamp for ledger rows — the UI renders stored values as UTC."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+
+# ---------- password hashing (pbkdf2; legacy sha256 upgraded on login) ----------
+def _pw_hash(pw):
+    salt = secrets.token_hex(16)
+    h = hashlib.pbkdf2_hmac("sha256", pw.encode(), bytes.fromhex(salt), 60_000).hex()
+    return f"pbkdf2$60000${salt}${h}"
+
+def _pw_ok(pw, stored):
+    """Verify against pbkdf2 (new) or legacy sha256. Returns (ok, needs_upgrade)."""
+    if (stored or "").startswith("pbkdf2$"):
+        try: _, it, salt, h = stored.split("$")
+        except ValueError: return False, False
+        mine = hashlib.pbkdf2_hmac("sha256", pw.encode(), bytes.fromhex(salt), int(it)).hex()
+        return secrets.compare_digest(mine, h), False
+    return secrets.compare_digest(hashlib.sha256(pw.encode()).hexdigest(), stored or ""), True
 
 def audit(c, action, detail="", actor=None):
     actor = actor if actor is not None else session.get("name") or session.get("uid") or "system"
@@ -278,25 +318,47 @@ if os.environ.get("POS_DEV_SHOTS"):  # screenshot helper — only active when en
         session.update(uid=u["id"], name=u["name"], role=u["role"])
         return redirect("/#" + page)
 
+_login_fails = {}  # (ip, username) → [count, first_ts] — in-memory brute-force throttle
 @app.post("/api/login")
 def login():
-    d = request.json; h = hashlib.sha256(d["password"].encode()).hexdigest()
+    d = request.json
+    key = (request.remote_addr or "?", d.get("username", ""))
+    now = time.time()
+    cnt, first = _login_fails.get(key, (0, now))
+    if now - first > 300: cnt, first = 0, now          # 5-minute window
+    if cnt >= 5:
+        return jsonify({"error": "Too many attempts — try again shortly"}), 429
     c = db()
-    u = c.execute("SELECT * FROM users WHERE username=? AND pw=?", (d["username"], h)).fetchone()
-    if not u:
+    u = c.execute("SELECT * FROM users WHERE username=?", (d["username"],)).fetchone()
+    ok, upgrade = _pw_ok(d["password"], u["pw"]) if u else (False, False)
+    if not ok:
+        _login_fails[key] = (cnt + 1, first)
         audit(c, "auth.login_failed", d["username"], actor=d["username"]); c.commit(); c.close()
         return jsonify({"error": "Invalid username or password"}), 401
-    session.update(uid=u["id"], name=u["name"], role=u["role"])
+    _login_fails.pop(key, None)
+    if upgrade:  # transparent sha256 → pbkdf2 migration on first successful login
+        c.execute("UPDATE users SET pw=? WHERE id=?", (_pw_hash(d["password"]), u["id"]))
+    session.update(uid=u["id"], name=u["name"], role=u["role"], must_change=bool(u["must_change"]))
     audit(c, "auth.login", u["username"], actor=u["name"]); c.commit(); c.close()
     return jsonify({"ok": True, "name": u["name"], "role": u["role"], "must_change": bool(u["must_change"]) if "must_change" in u.keys() else False})
 
+@app.before_request
+def _force_password_change():
+    """A must_change user may only reach their own password endpoint + logout."""
+    if not session.get("uid") or not session.get("must_change"): return
+    allowed = ("user_pw", "logout", "bootstrap", "static")
+    if request.endpoint in allowed or (request.path.startswith("/static")): return
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "password_change_required"}), 403
+
 @app.post("/api/forgot")
 def forgot():
-    u = db().execute("SELECT id FROM users WHERE username=?", (request.json.get("username", "").strip(),)).fetchone()
+    uname = (request.json or {}).get("username", "").strip()
+    u = db().execute("SELECT id FROM users WHERE username=?", (uname,)).fetchone()
     if u:
         c = db()
         c.execute("INSERT INTO reset_requests(username,user_id,created) VALUES(?,?,?)",
-                  (request.json["username"].strip(), u["id"], datetime.now().isoformat(timespec="seconds")))
+                  (uname, u["id"], utcts()))
         c.commit()
     return jsonify({"ok": True})  # same response whether or not the user exists
 
@@ -314,7 +376,7 @@ def reset_approve(rid):
     if not r: return jsonify({"error": "not found"}), 404
     temp = "Shujaa-" + secrets.token_hex(3)
     c.execute("UPDATE users SET pw=?, must_change=1 WHERE id=?",
-              (hashlib.sha256(temp.encode()).hexdigest(), r["user_id"]))
+              (_pw_hash(temp), r["user_id"]))
     c.execute("UPDATE reset_requests SET status='done' WHERE id=?", (rid,))
     audit(c, "user.password_reset", r["username"])
     c.commit(); return jsonify({"ok": True, "temp": temp})
@@ -452,7 +514,9 @@ def upload():
     import base64, re
     m = re.match(r"data:(image/\w+);base64,(.*)", request.json.get("data", ""), re.S)
     if not m: return jsonify({"error": "Not an image file"}), 400
-    ext = {"jpeg": "jpg", "png": "png", "gif": "gif", "webp": "webp", "svg+xml": "svg"}.get(m.group(1)[6:], "img")
+    if m.group(1) == "image/svg+xml":  # svg can carry scripts — never stored same-origin
+        return jsonify({"error": "SVG not allowed"}), 400
+    ext = {"jpeg": "jpg", "png": "png", "gif": "gif", "webp": "webp"}.get(m.group(1)[6:], "img")
     os.makedirs(os.path.join(BASE, "static", "uploads"), exist_ok=True)
     fn = f"static/uploads/{secrets.token_hex(8)}.{ext}"
     with open(os.path.join(BASE, fn), "wb") as f:
@@ -492,52 +556,108 @@ def lookup():  # barcode or name search for the till
 @app.post("/api/checkout")
 @need_login
 def checkout():
+    """Atomic sale. Prices, names, tax flags and bulk deals are re-read from the
+    products table — client-sent prices are never trusted (till staff could
+    otherwise charge any amount). Promos are validated and applied here."""
     d = request.json; items = d.get("items", [])
     if not items: return jsonify({"error": "Cart is empty"}), 400
     c = db()
     try:
         c.execute("BEGIN IMMEDIATE")
         rate = float(c.execute("SELECT v FROM settings WHERE k='tax_rate'").fetchone()["v"] or 0)
+        wholesale = d.get("price_list") == "wholesale"
         vat = total = gross = 0.0
+        lines = []
         for i in items:
-            p2 = c.execute("SELECT taxable,discount_qty,discount_pct,stock,name FROM products WHERE id=?", (i["id"],)).fetchone()
-            if not p2 or p2["stock"] < i["qty"]:
-                c.execute("ROLLBACK"); return jsonify({"error": f"Not enough stock: {p2['name'] if p2 else i['id']}"}), 400
-            gross += i["price"] * i["qty"]
-            line = round(i["price"] * i["qty"] * (1 - (p2["discount_pct"] or 0) / 100 if p2["discount_qty"] and i["qty"] >= p2["discount_qty"] else 1), 2)
-            i["line_total"] = line
+            p2 = c.execute("SELECT * FROM products WHERE id=?", (i.get("id"),)).fetchone()
+            qty = float(i.get("qty") or 0)
+            if not p2 or p2["stock"] < qty or qty <= 0:
+                c.execute("ROLLBACK")
+                return jsonify({"error": f"Not enough stock: {p2['name'] if p2 else i.get('id')}"}), 400
+            if i.get("pack") and (p2["pack_size"] or 0) > 1:
+                unit = round((p2["pack_price"] if p2["pack_price"] is not None else p2["price"] * p2["pack_size"]) / p2["pack_size"], 2)
+                suffix = f" · pack ×{p2['pack_size']}"
+            elif wholesale and p2["price_wholesale"] is not None:
+                unit, suffix = float(p2["price_wholesale"]), ""
+            else:
+                unit, suffix = float(p2["price"]), ""
+            name = p2["name"] + (f" · {p2['variant_label']}" if p2["variant_label"] else "") + suffix
+            gross += unit * qty
+            line = round(unit * qty * (1 - (p2["discount_pct"] or 0) / 100 if p2["discount_qty"] and qty >= p2["discount_qty"] else 1), 2)
             total += line
             if p2["taxable"]:
                 vat += round(line * rate / (100 + rate), 2)  # VAT-inclusive pricing
+            lines.append({"id": p2["id"], "name": name, "price": unit, "qty": qty, "line_total": line})
         total = round(total, 2)
-        inv_disc = round(float(d.get("discount") or 0), 2)
+        promo_amt = 0.0
+        code = (d.get("promo_code") or "").strip().upper()
+        if code:
+            pr = c.execute("SELECT * FROM promos WHERE code=? AND active=1", (code,)).fetchone()
+            if not pr:
+                c.execute("ROLLBACK"); return jsonify({"error": f"Promo code {code} is invalid or inactive"}), 400
+            if total < float(pr["min_total"] or 0):
+                c.execute("ROLLBACK"); return jsonify({"error": f"Promo {code} needs a minimum spend of {pr['min_total']}"}), 400
+            promo_amt = round(total * float(pr["value"]) / 100, 2) if pr["kind"] == "pct" else round(min(float(pr["value"]), total), 2)
+        inv_disc = round(float(d.get("discount") or 0) + promo_amt, 2)
         eff = round(max(0.0, total - inv_disc), 2)
-        cash = round(float(d.get("cash", eff)), 2)
-        if cash < eff and d.get("method") != "credit":
+        if isinstance(d.get("payments"), list) and d["payments"]:
+            pays = [{"method": str(p.get("method") or "cash"), "amount": round(float(p.get("amount") or 0), 2)}
+                    for p in d["payments"]]
+        else:
+            pays = [{"method": d.get("method", "cash"), "amount": round(float(d.get("cash", eff)), 2)}]
+        cash = round(sum(p["amount"] for p in pays), 2)
+        on_credit = any(p["method"] == "credit" for p in pays)
+        if cash < eff and not on_credit:
             c.execute("ROLLBACK"); return jsonify({"error": "Insufficient cash"}), 400
+        # credit amount owed = the shortfall a credit line covers
+        credit_amt = round(max(0.0, eff - sum(p["amount"] for p in pays if p["method"] != "credit")), 2) if on_credit else 0.0
+        cid = d.get("customer_id")
+        if not cid and d.get("customer_name"):
+            cust = c.execute("SELECT id FROM customers WHERE name=?", (d["customer_name"],)).fetchone()
+            cid = cust["id"] if cust else None
+        if credit_amt > 0:
+            if not cid:
+                c.execute("ROLLBACK"); return jsonify({"error": "Credit sales need a registered customer"}), 400
+            if not c.execute("SELECT 1 FROM customers WHERE id=?", (cid,)).fetchone():
+                c.execute("ROLLBACK"); return jsonify({"error": "Unknown customer"}), 400
         suid = str(uuid.uuid4())
         inv = next_receipt(c)
         ur = c.execute("SELECT name FROM users WHERE id=?", (session["uid"],)).fetchone()
         c.execute("""INSERT INTO sales(invoice_no,total,cash,change_due,vat,discount,user_id,status,created,
-                     sale_uuid,business_id,branch_id,customer_name,cashier_name,promo_code)
-                     VALUES(?,?,?,?,?,?,?,'completed',?,?,?,?,?,?,?)""",
-                  (inv, eff, cash, round(cash - eff, 2), round(vat, 2), round(gross - eff, 2), session["uid"],
-                   datetime.now().isoformat(timespec="seconds"), suid, DEFAULT_BUSINESS, DEFAULT_BRANCH,
-                   d.get("customer_name"), ur["name"] if ur else None, d.get("promo_code")))
+                     sale_uuid,business_id,branch_id,customer_name,cashier_name,promo_code,customer_id)
+                     VALUES(?,?,?,?,?,?,?,'completed',?,?,?,?,?,?,?,?)""",
+                  (inv, eff, cash, round(max(0.0, cash - eff), 2), round(vat, 2), round(gross - eff, 2), session["uid"],
+                   utcts(), suid, DEFAULT_BUSINESS, DEFAULT_BRANCH,
+                   d.get("customer_name"), ur["name"] if ur else None, code or None, cid))
         sid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
-        for i in items:
+        for i in lines:
             c.execute("INSERT INTO sale_items(sale_id,product_id,name,price,qty,total) VALUES(?,?,?,?,?,?)",
                       (sid, i["id"], i["name"], i["price"], i["qty"], i["line_total"]))
             c.execute("UPDATE products SET stock=stock-? WHERE id=?", (i["qty"], i["id"]))
+            # FEFO: deplete expiring batches first so the ledger matches the shelf
+            left = i["qty"]
+            for b in c.execute("""SELECT id,qty FROM batches WHERE product_id=? AND qty>0
+                                  ORDER BY COALESCE(expiry,'9999'), id""", (i["id"],)).fetchall():
+                if left <= 0: break
+                take = min(left, b["qty"])
+                c.execute("UPDATE batches SET qty=qty-? WHERE id=?", (take, b["id"]))
+                left -= take
             record_movement(c, i["id"], -i["qty"], "SALE", suid, f"sale {inv}")
-        c.execute("INSERT INTO payments(sale_id,method,amount,created) VALUES(?,?,?,?)",
-                  (sid, d.get("method", "cash"), cash, datetime.now().isoformat(timespec="seconds")))
+        for p in pays:  # the credit row reflects the actual amount owed, not client claims
+            amt = credit_amt if p["method"] == "credit" else p["amount"]
+            c.execute("INSERT INTO payments(sale_id,method,amount,created) VALUES(?,?,?,?)",
+                      (sid, p["method"], amt, utcts()))
+        if credit_amt > 0:  # ledger the debt against the customer
+            c.execute("INSERT INTO credit_payments(uuid,customer_id,sale_id,kind,amount,note,created_at) VALUES(?,?,?,?,?,?,?)",
+                      (str(uuid.uuid4()), cid, sid, "charge", credit_amt, inv, utcts()))
+            c.execute("UPDATE customers SET balance=balance+? WHERE id=?", (credit_amt, cid))
         emit_event(c, "SALE_CREATED", suid,
-                   {"sale_uuid": suid, "invoice_no": inv, "total": eff, "vat": round(vat, 2),
-                    "discount": round(gross - eff, 2), "cash": cash, "method": d.get("method", "cash"),
-                    "customer_name": d.get("customer_name"), "promo_code": d.get("promo_code"), "items": [
+                   {"sale_uuid": suid, "invoice_no": inv, "subtotal": total, "total": eff, "vat": round(vat, 2),
+                    "discount": round(gross - eff, 2), "cash": cash, "method": pays[0]["method"],
+                    "payments": pays,
+                    "customer_name": d.get("customer_name"), "promo_code": code or None, "items": [
                         {"product_id": i["id"], "product_uuid": str(uuid.uuid5(uuid.NAMESPACE_DNS, str(i["id"]))),
-                         "name": i["name"], "qty": i["qty"], "total": i["line_total"]} for i in items]})
+                         "name": i["name"], "qty": i["qty"], "total": i["line_total"]} for i in lines]})
         audit(c, "sale.completed", f"{inv} · {eff}")
         c.execute("COMMIT")
     except sqlite3.Error:
@@ -545,7 +665,7 @@ def checkout():
         except sqlite3.Error: pass
         raise
     finally: c.close()
-    return jsonify({"ok": True, "invoice": inv, "total": eff, "cash": cash, "change": round(cash - eff, 2), "id": sid})
+    return jsonify({"ok": True, "invoice": inv, "total": eff, "cash": cash, "change": round(max(0.0, cash - eff), 2), "id": sid})
 
 @app.get("/api/receipt/<int:sid>")
 @need_login
@@ -590,7 +710,7 @@ def held():
         d = request.json
         if not d.get("items"): return jsonify({"error": "Cart is empty"}), 400
         c.execute("INSERT INTO held_sales(label,items,user_id,created) VALUES(?,?,?,?)",
-                  (d.get("label") or "Held sale", json.dumps(d["items"]), session["uid"], datetime.now().isoformat(timespec="seconds")))
+                  (d.get("label") or "Held sale", json.dumps(d["items"]), session["uid"], utcts()))
         c.commit(); return jsonify({"ok": True})
     return jsonify(rows(c, """SELECT h.*, u.name cashier FROM held_sales h
         LEFT JOIN users u ON u.id=h.user_id ORDER BY h.id DESC"""))
@@ -625,7 +745,7 @@ def stock_add():
     mtype = "PURCHASE_RECEIVED" if qty >= 0 and d.get("supplier_id") else ("DAMAGE" if qty < 0 and "damage" in (d.get("note") or "").lower() else "STOCK_ADJUSTMENT")
     mid = record_movement(c, d["product_id"], qty, mtype, ref, d.get("note", ""))
     c.execute("INSERT INTO stock_entries(ref_no,product_id,qty,kind,note,supplier_id,created,branch_id,movement_id) VALUES(?,?,?,?,?,?,?,1,?)",
-              (ref, d["product_id"], qty, kind, d.get("note",""), d.get("supplier_id"), datetime.now().isoformat(timespec="seconds"), mid))
+              (ref, d["product_id"], qty, kind, d.get("note",""), d.get("supplier_id"), utcts(), mid))
     c.execute("UPDATE products SET stock=stock+? WHERE id=?", (qty, d["product_id"]))
     if qty > 0 and (d.get("batch_no") or "").strip():
         c.execute("INSERT INTO batches(product_id,batch_no,qty,expiry,created_at) VALUES(?,?,?,?,?)",
@@ -650,6 +770,7 @@ def lookups(kind):
     if not table: return jsonify({"error": "bad kind"}), 400
     c = db()
     if request.method == "POST":
+        if session.get("role") != "admin": return jsonify({"error": "admin only"}), 403
         d = request.json
         try:
             c.execute(f"INSERT INTO {table}(name{',contact,phone,address' if table=='suppliers' else ''}) VALUES(?{',?,?,?' if table=='suppliers' else ''})",
@@ -706,7 +827,7 @@ def users():
         d = request.json
         try:
             c.execute("INSERT INTO users(username,pw,name,role) VALUES(?,?,?,?)",
-                      (d["username"], hashlib.sha256(d["password"].encode()).hexdigest(), d["name"], d.get("role", "cashier")))
+                      (d["username"], _pw_hash(d["password"]), d["name"], d.get("role", "cashier")))
         except sqlite3.IntegrityError: return jsonify({"error": "Username taken"}), 400
         audit(c, "user.created", f"{d['username']} ({d.get('role','cashier')})")
         c.commit(); return jsonify({"ok": True})
@@ -738,7 +859,8 @@ def user_role(uid):
 @need_login
 def user_pw(uid):
     if uid != session["uid"] and session.get("role") != "admin": return jsonify({"error": "forbidden"}), 403
-    c = db(); c.execute("UPDATE users SET pw=?, must_change=0 WHERE id=?", (hashlib.sha256(request.json["password"].encode()).hexdigest(), uid))
+    c = db(); c.execute("UPDATE users SET pw=?, must_change=0 WHERE id=?", (_pw_hash(request.json["password"]), uid))
+    if uid == session.get("uid"): session["must_change"] = False
     audit(c, "user.password_changed", f"user {uid}")
     c.commit(); return jsonify({"ok": True})
 
@@ -793,7 +915,7 @@ def devices():
         exp = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(timespec="seconds")
         c.execute("INSERT INTO pairing_tokens(token,business_id,branch_id,created_by,expires_at) VALUES(?,?,?,?,?)",
                   (tok, DEFAULT_BUSINESS, DEFAULT_BRANCH, session["uid"], exp))
-        audit(c, "device.pairing_issued", tok)
+        audit(c, "device.pairing_issued", f"…{tok[-2:]}")  # never log the secret itself
         c.commit(); return jsonify({"ok": True, "token": tok, "expires_at": exp, "hub_url": f"http://{lan_ip()}:5050"})
     return jsonify(rows(c, "SELECT id,uuid,device_name,device_type,active,last_seen_at,created_at FROM devices ORDER BY COALESCE(last_seen_at,'') DESC, id DESC"))
 
@@ -847,8 +969,10 @@ def localize_image(url):
         if f.startswith(name): return f"/static/imgcache/{f}"
     try:
         r = urllib.request.urlopen(src, timeout=8)
+        if r.headers.get("Content-Type", "").split(";")[0] == "image/svg+xml":
+            return url  # scriptable format — don't cache/serve it from our origin
         ext = {"image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif",
-               "image/webp": ".webp", "image/svg+xml": ".svg"}.get(
+               "image/webp": ".webp"}.get(
                r.headers.get("Content-Type", "").split(";")[0], ".jpg")
         fname = name + ext
         open(os.path.join(IMG_CACHE, fname), "wb").write(r.read(500_000))  # cap ~500KB
@@ -863,8 +987,23 @@ def device_products():
     for p in prods: p["image"] = localize_image(p["image"])
     return jsonify(prods)
 
+def _product_ref_map(c):
+    """Wire product references → local product ids. Devices carry the hub's
+    integer id as a string; cloud/web entities carry uuid5(str(id))."""
+    out = {}
+    for r in c.execute("SELECT id FROM products"):
+        out[str(r["id"])] = r["id"]
+        out[str(uuid.uuid5(uuid.NAMESPACE_DNS, str(r["id"])))] = r["id"]
+    return out
+
+def _conflict(c, e, reason, detail):
+    """An accepted event that can't be projected is a conflict, never a silent skip."""
+    c.execute("INSERT INTO sync_conflicts(event_id,device_id,reason,detail,created_at) VALUES(?,?,?,?,?)",
+              (e.get("event_id"), e.get("device_id"), reason, json.dumps(detail), utcnow()))
+
 def apply_sale_event(c, dev, e):
-    """Project a pushed SALE_CREATED into local sales rows. Idempotent via
+    """Project a pushed SALE_CREATED into local sales rows — including the stock
+    decrement, the ledger movement and the payment rows. Idempotent via
     sale_uuid — re-delivery and own-hub echoes are no-ops."""
     p = e.get("payload") or {}
     suid = str(p.get("sale_id") or p.get("sale_uuid") or e.get("entity_id") or "")
@@ -890,11 +1029,109 @@ def apply_sale_event(c, dev, e):
                (e.get("device_created_at") or utcnow())[:19], suid, dev["business_id"], dev["branch_id"], dev["id"], cname,
                p.get("customer_name"), p.get("promo_code")))
     sid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
+    pmap = _product_ref_map(c)
     for i in p.get("items", []):
         lt = f(i.get("total_cents") if "total_cents" in i else i.get("total"))
         up = f(i.get("unit_price_cents") if "unit_price_cents" in i else (i.get("total") or 0) / max(i.get("qty") or 1, 1))
+        pid = pmap.get(str(i.get("product_id") or i.get("product_uuid") or ""))
         c.execute("INSERT INTO sale_items(sale_id,product_id,name,price,qty,total) VALUES(?,?,?,?,?,?)",
-                  (sid, str(i.get("product_id") or ""), i.get("name") or "item", up, i.get("qty") or 0, lt))
+                  (sid, pid, i.get("name") or "item", up, i.get("qty") or 0, lt))
+        if pid and (i.get("qty") or 0) > 0:   # the device already debited its mirror — debit ours + ledger
+            c.execute("UPDATE products SET stock=stock-? WHERE id=?", (i["qty"], pid))
+            record_movement(c, pid, -i["qty"], "SALE", suid, f"sale {inv}", dev.get("id"))
+    pays = p.get("payments") or [{"method": p.get("method") or "cash", "amount": paid}]
+    for pay in pays:
+        amt = round((pay.get("amount_cents") or 0) / 100, 2) if "amount_cents" in pay else round(float(pay.get("amount") or 0), 2)
+        c.execute("INSERT INTO payments(sale_id,method,amount,created) VALUES(?,?,?,?)",
+                  (sid, str(pay.get("method") or "cash"), amt, utcts()))
+
+def apply_incoming_event(c, dev, e):
+    """Projector for events arriving via /sync/push or _cloud_pull. Any type the
+    hub can represent is applied; the rest stay durable in sync_events."""
+    t, p = e["event_type"], e.get("payload") or {}
+    if t == "SALE_CREATED":
+        return apply_sale_event(c, dev, e)
+    if t == "SALE_VOIDED":
+        suid = str(p.get("sale_uuid") or e.get("entity_id") or "")
+        s = c.execute("SELECT * FROM sales WHERE sale_uuid=? AND status='completed'", (suid,)).fetchone()
+        if not s: return
+        c.execute("UPDATE sales SET status='void' WHERE id=?", (s["id"],))
+        for i in c.execute("SELECT product_id,qty FROM sale_items WHERE sale_id=?", (s["id"],)):
+            if i["product_id"]:
+                c.execute("UPDATE products SET stock=stock+? WHERE id=?", (i["qty"], i["product_id"]))
+                record_movement(c, i["product_id"], i["qty"], "SALE_RETURN", suid, f"void {s['invoice_no']}", dev.get("id"))
+    elif t == "STOCK_MOVED":
+        pid = _product_ref_map(c).get(str(p.get("product_id") or p.get("product_uuid") or ""))
+        if not pid: return _conflict(c, e, "unmapped_product", {"product_id": p.get("product_id"), "product_uuid": p.get("product_uuid")})
+        qty = float(p.get("quantity_delta") or 0)
+        c.execute("UPDATE products SET stock=stock+? WHERE id=?", (qty, pid))
+        record_movement(c, pid, qty, p.get("movement_type") or "STOCK_ADJUSTMENT",
+                        str(p.get("movement_uuid") or e.get("entity_id") or ""), p.get("note") or p.get("ref_no") or "", dev.get("id"))
+    elif t in ("PRODUCT_CREATED", "PRODUCT_UPDATED"):
+        # concurrent-edit detection: another writer already touched this entity
+        # after this event was created → flag, still apply (last-writer-wins).
+        if t == "PRODUCT_UPDATED":
+            newer = c.execute("""SELECT 1 FROM sync_events WHERE event_type='PRODUCT_UPDATED'
+                AND entity_id=? AND CAST(device_id AS TEXT) != ? AND device_created_at > ? LIMIT 1""",
+                (str(e.get("entity_id") or ""), str(e.get("device_id") or ""),
+                 e.get("device_created_at") or "")).fetchone()
+            if newer:
+                _conflict(c, e, "concurrent_product_edit",
+                          {"entity_id": e.get("entity_id"), "name": p.get("name")})
+        bc = (p.get("barcode") or "").strip() or None
+        row = c.execute("SELECT id FROM products WHERE barcode=?", (bc,)).fetchone() if bc else None
+        if not row:
+            pid = _product_ref_map(c).get(str(p.get("product_id") or p.get("product_uuid") or ""))
+            row = c.execute("SELECT id FROM products WHERE id=?", (pid,)).fetchone() if pid else None
+        vals = {k: p.get(k) for k in ("name", "price", "price_wholesale", "cost", "taxable") if p.get(k) is not None}
+        if row and vals:
+            c.execute("UPDATE products SET " + ", ".join(f"{k}=?" for k in vals) + " WHERE id=?",
+                      tuple(vals.values()) + (row["id"],))
+        elif not row and (bc or p.get("name")):
+            c.execute("INSERT INTO products(barcode,name,price,price_wholesale,cost,taxable,stock) VALUES(?,?,?,?,?,?,?)",
+                      (bc, p.get("name") or "Unnamed", float(p.get("price") or 0), p.get("price_wholesale"),
+                       float(p.get("cost") or 0), int(p.get("taxable", 1)), float(p.get("stock") or 0)))
+    elif t == "PRODUCT_DELETED":
+        pid = _product_ref_map(c).get(str(p.get("product_id") or e.get("entity_id") or ""))
+        if pid: c.execute("DELETE FROM products WHERE id=?", (pid,))
+    elif t == "RETURN_POSTED":
+        ruid = str(p.get("return_uuid") or e.get("entity_id") or "")
+        if not ruid or c.execute("SELECT 1 FROM returns WHERE uuid=?", (ruid,)).fetchone(): return
+        s = c.execute("SELECT * FROM sales WHERE sale_uuid=?", (str(p.get("sale_uuid") or ""),)).fetchone()
+        if not s: return _conflict(c, e, "return_sale_missing", {"sale_uuid": p.get("sale_uuid")})
+        pmap = _product_ref_map(c); total = 0.0
+        c.execute("INSERT INTO returns(uuid,sale_id,reason,total,user_id,created_at) VALUES(?,?,?,?,?,?)",
+                  (ruid, s["id"], p.get("reason", ""), 0, None, utcnow()))
+        rid = c.execute("SELECT last_insert_rowid()").fetchone()[0]
+        for i in p.get("items", []):
+            pid = pmap.get(str(i.get("product_id") or i.get("product_uuid") or ""))
+            if not pid: continue
+            qty = float(i.get("qty") or 0); lt = round(float(i.get("total") or 0), 2); total += lt
+            c.execute("INSERT INTO return_items(return_id,product_id,name,qty,total) VALUES(?,?,?,?,?)",
+                      (rid, pid, i.get("name") or "item", qty, lt))
+            c.execute("UPDATE products SET stock=stock+? WHERE id=?", (qty, pid))
+            record_movement(c, pid, qty, "SALE_RETURN", ruid, "remote return", dev.get("id"))
+        c.execute("UPDATE returns SET total=? WHERE id=?", (round(total, 2), rid))
+    elif t == "PURCHASE_RECEIVED":
+        puid = str(p.get("purchase_uuid") or e.get("entity_id") or "")
+        if not puid or c.execute("SELECT 1 FROM purchases WHERE uuid=?", (puid,)).fetchone(): return
+        c.execute("INSERT INTO purchases(uuid,supplier_id,total,note,user_id,created_at) VALUES(?,?,?,?,?,?)",
+                  (puid, None, float(p.get("total") or 0), "remote", None, utcnow()))
+        puh = c.execute("SELECT last_insert_rowid()").fetchone()[0]
+        pmap = _product_ref_map(c)
+        for i in p.get("items", []):
+            pid = pmap.get(str(i.get("product_id") or i.get("product_uuid") or ""))
+            if not pid: continue
+            qty, cost = float(i.get("qty") or 0), float(i.get("cost") or 0)
+            c.execute("INSERT INTO purchase_items(purchase_id,product_id,qty,cost) VALUES(?,?,?,?)", (puh, pid, qty, cost))
+            c.execute("UPDATE products SET stock=stock+?, cost=? WHERE id=?", (qty, cost, pid))
+            record_movement(c, pid, qty, "PURCHASE_RECEIVED", puid, "remote purchase", dev.get("id"))
+    elif t == "EXPENSE_POSTED":
+        euid = str(p.get("expense_uuid") or e.get("entity_id") or "")
+        if not euid or c.execute("SELECT 1 FROM expenses WHERE uuid=?", (euid,)).fetchone(): return
+        c.execute("INSERT INTO expenses(uuid,category,amount,note,user_id,created_at) VALUES(?,?,?,?,?,?)",
+                  (euid, p.get("category") or "General", float(p.get("amount") or 0), p.get("note", ""), None, utcnow()))
+    # TRANSFER_*: hub has no transfer tables — events stay durable in sync_events
 
 @app.get("/api/v1/users")
 @need_device
@@ -960,9 +1197,13 @@ def shift_close():
                   (d["id"],)).fetchone()
     if not s: return jsonify({"error": "no open shift"}), 400
     count = float(j.get("count") or 0)
-    expected = (s["opening_float"] or 0) + (c.execute(
-        "SELECT COALESCE(SUM(total),0) t FROM sales WHERE status='completed' AND device_id=? AND created>=?",
-        (d["id"], s["opened_at"])).fetchone()["t"] or 0)
+    cash_moves = c.execute(
+        """SELECT COALESCE(SUM(CASE kind WHEN 'in' THEN amount ELSE -amount END),0) t
+           FROM cash_movements WHERE shift_id=?""", (s["id"],)).fetchone()["t"] or 0
+    expected = round((s["opening_float"] or 0) + cash_moves + (c.execute(
+        """SELECT COALESCE(SUM(p.amount),0) t FROM payments p JOIN sales s2 ON s2.id=p.sale_id
+           WHERE p.method='cash' AND s2.status='completed' AND s2.device_id=? AND s2.created>=?""",
+        (d["id"], s["opened_at"])).fetchone()["t"] or 0), 2)
     diff = round(count - expected, 2)
     c.execute("""UPDATE shifts SET closed_at=?,closing_count=?,expected_cash=?,difference=?,status='CLOSED' WHERE id=?""",
               (utcnow(), count, expected, diff, s["id"]))
@@ -970,10 +1211,58 @@ def shift_close():
     c.commit()
     return jsonify({"ok": True, "expected": expected, "counted": count, "difference": diff})
 
+@app.post("/api/v1/shifts/cash-move")
+@need_device
+def shift_cash_move():
+    """Petty cash in/out against the device's open shift — counted in expected_cash."""
+    d = request.device; c = db(); j = request.json or {}
+    s = c.execute("SELECT * FROM shifts WHERE device_id=? AND status='OPEN' ORDER BY id DESC LIMIT 1",
+                  (d["id"],)).fetchone()
+    if not s: return jsonify({"error": "no open shift"}), 400
+    kind = j.get("kind")
+    if kind not in ("in", "out"): return jsonify({"error": "kind must be in|out"}), 400
+    amount = float(j.get("amount") or 0)
+    if amount <= 0: return jsonify({"error": "amount must be positive"}), 400
+    uname = j.get("cashier_name") or d["device_name"]
+    c.execute("INSERT INTO cash_movements(shift_id,device_id,kind,amount,note,user_name,created_at) VALUES(?,?,?,?,?,?,?)",
+              (s["id"], d["id"], kind, round(amount, 2), j.get("note", ""), uname, utcnow()))
+    audit(c, "shift.cash_move", f"{d['device_name']} {kind} {amount} · {j.get('note','')}")
+    c.commit(); return jsonify({"ok": True})
+
+@app.get("/api/v1/shifts/cash-moves")
+@need_device
+def shift_cash_moves():
+    s = db().execute("SELECT * FROM shifts WHERE device_id=? AND status='OPEN' ORDER BY id DESC LIMIT 1",
+                     (request.device["id"],)).fetchone()
+    if not s: return jsonify([])
+    return jsonify(rows(db(), "SELECT kind,amount,note,user_name,created_at FROM cash_movements WHERE shift_id=? ORDER BY id", (s["id"],)))
+
 @app.get("/api/customers")
 @need_login
 def customers_list():
-    return jsonify(rows(db(), "SELECT id,name,phone FROM customers ORDER BY name"))
+    return jsonify(rows(db(), "SELECT id,name,phone,balance FROM customers ORDER BY name"))
+
+@app.post("/api/customers/<int:cid>/pay")
+@need_login
+def customer_pay(cid):
+    """Receive a payment against a customer's outstanding credit balance."""
+    c = db(); j = request.json or {}
+    cust = c.execute("SELECT * FROM customers WHERE id=?", (cid,)).fetchone()
+    if not cust: return jsonify({"error": "not found"}), 404
+    amount = round(float(j.get("amount") or 0), 2)
+    if amount <= 0: return jsonify({"error": "amount must be positive"}), 400
+    c.execute("INSERT INTO credit_payments(uuid,customer_id,sale_id,kind,amount,note,created_at) VALUES(?,?,?,?,?,?,?)",
+              (str(uuid.uuid4()), cid, None, "payment", amount, j.get("note", ""), utcts()))
+    c.execute("UPDATE customers SET balance=MAX(0,balance-?) WHERE id=?", (amount, cid))
+    audit(c, "customer.credit_payment", f"{cust['name']} paid {amount}")
+    c.commit()
+    return jsonify({"ok": True, "balance": round(max(0.0, (cust["balance"] or 0) - amount), 2)})
+
+@app.get("/api/customers/<int:cid>/ledger")
+@need_login
+def customer_ledger(cid):
+    return jsonify(rows(db(), """SELECT kind,amount,note,created_at FROM credit_payments
+        WHERE customer_id=? ORDER BY id DESC LIMIT 100""", (cid,)))
 
 @app.route("/api/v1/customers", methods=["GET", "POST"])
 @need_device
@@ -985,7 +1274,7 @@ def device_customers():
         c.execute("INSERT INTO customers(name,phone,created_at) VALUES(?,?,?)",
                   (j["name"].strip(), (j.get("phone") or "").strip(), utcnow()))
         c.commit(); return jsonify({"ok": True, "id": c.execute("SELECT last_insert_rowid()").fetchone()[0]})
-    return jsonify(rows(c, "SELECT id,name,phone FROM customers ORDER BY name"))
+    return jsonify(rows(c, "SELECT id,name,phone,balance FROM customers ORDER BY name"))
 
 @app.route("/api/promos", methods=["GET", "POST"])
 @need_admin
@@ -993,9 +1282,12 @@ def promos():
     c = db()
     if request.method == "POST":
         j = request.json or {}
-        c.execute("INSERT INTO promos(code,kind,value,min_total,active,created_at) VALUES(?,?,?,?,1,?)",
-                  ((j.get("code") or "").strip().upper(), j.get("kind", "pct"),
-                   float(j.get("value") or 0), float(j.get("min_total") or 0), utcnow()))
+        try:
+            c.execute("INSERT INTO promos(code,kind,value,min_total,active,created_at) VALUES(?,?,?,?,1,?)",
+                      ((j.get("code") or "").strip().upper(), j.get("kind", "pct"),
+                       float(j.get("value") or 0), float(j.get("min_total") or 0), utcnow()))
+        except sqlite3.IntegrityError:
+            return jsonify({"error": "That promo code already exists"}), 400
         c.commit(); return jsonify({"ok": True})
     return jsonify(rows(c, "SELECT * FROM promos ORDER BY id DESC"))
 
@@ -1010,7 +1302,30 @@ def promo_del(pid):
 def device_promos():
     return jsonify(rows(db(), "SELECT code,kind,value,min_total FROM promos WHERE active=1"))
 
+@app.get("/api/v1/settings")
+@need_device
+def device_settings():
+    """Till-relevant settings for devices — tax rate drives offline VAT math."""
+    s = {r["k"]: r["v"] for r in db().execute("SELECT * FROM settings")}
+    return jsonify({"tax_rate": float(s.get("tax_rate") or 0), "currency": s.get("currency") or "KSh ",
+                    "store_name": s.get("store_name") or ""})
+
 # ---------- Synchronization (§8) ----------
+@app.get("/api/sync/conflicts")
+@need_admin
+def conflicts_list():
+    return jsonify(rows(db(), """SELECT * FROM sync_conflicts WHERE resolved=0 ORDER BY id DESC LIMIT 200"""))
+
+@app.post("/api/sync/conflicts/<int:cid>/resolve")
+@need_admin
+def conflict_resolve(cid):
+    c = db()
+    if not c.execute("SELECT 1 FROM sync_conflicts WHERE id=?", (cid,)).fetchone():
+        return jsonify({"error": "not found"}), 404
+    c.execute("UPDATE sync_conflicts SET resolved=1 WHERE id=?", (cid,))
+    audit(c, "sync.conflict_resolved", f"conflict {cid}")
+    c.commit(); return jsonify({"ok": True})
+
 @app.post("/api/v1/sync/push")
 @need_device
 def sync_push():
@@ -1041,8 +1356,10 @@ def sync_push():
             c.execute("INSERT INTO sync_receipts(event_id,device_id,acked_at,status) VALUES(?,?,?,?)",
                       (eid, dev["id"], utcnow(), "accepted"))
             accepted.append({"event_id": eid, "server_sequence": r[0]})
-            if e["event_type"] == "SALE_CREATED":
-                apply_sale_event(c, dev, e)
+            try:
+                apply_incoming_event(c, dev, e)
+            except Exception as ex:  # event is durable — record, don't lose it
+                _conflict(c, e, "apply_failed", {"error": str(ex)[:300], "event_type": e["event_type"]})
         audit(c, "sync.push", f"device {dev['id']}: {len(accepted)} accepted, {len(dup)} dup, {len(rejected)} rejected",
               actor=f"device:{dev['id']}")
         c.execute("COMMIT")
@@ -1083,6 +1400,7 @@ def sync_status():
     """Sync health for monitoring (§15). Device callers see their cursor; staff see the hub view."""
     c = db()
     dev = device_identity()
+    if not (dev or "uid" in session): return jsonify({"error": "auth"}), 401
     pending = c.execute("SELECT COUNT(*) n FROM sync_outbox WHERE cloud_acked=0").fetchone()["n"]
     conflicts = c.execute("SELECT COUNT(*) n FROM sync_conflicts WHERE resolved=0").fetchone()["n"]
     latest = c.execute("SELECT COALESCE(MAX(server_sequence),0) s FROM sync_events").fetchone()["s"]
@@ -1187,8 +1505,14 @@ def cloud_sync():
         return jsonify({"error": "CLOUD_BRANCH_ID not configured"}), 400
     c = db()
     pending = rows(c, "SELECT * FROM sync_outbox WHERE cloud_acked=0 ORDER BY id LIMIT 100")
-    if not pending: return jsonify({"ok": True, "pushed": 0})
-    events = [{"event_id": p["event_id"], "event_type": p["event_type"], "entity_id": p["entity_id"],
+    if not pending:  # still pull — cloud/web events arrive even when outbox is empty
+        pulled = _cloud_pull(c); c.commit()
+        return jsonify({"ok": True, "pushed": 0, "pulled": pulled})
+    def _ent(v):  # cloud sync_events.entity_id is uuid-typed — coerce local refs
+        s = str(v or "")
+        try: uuid.UUID(s); return s
+        except ValueError: return str(uuid.uuid5(uuid.NAMESPACE_DNS, s)) if s else None
+    events = [{"event_id": p["event_id"], "event_type": p["event_type"], "entity_id": _ent(p["entity_id"]),
                "payload": json.loads(p["payload"]), "device_created_at": p["created_at"],
                "device_sequence": p["id"], "device_id": os.environ.get("CLOUD_DEVICE_ID"),
                "business_id": os.environ.get("CLOUD_BUSINESS_ID"), "branch_id": CLOUD_BRANCH_UUID}
@@ -1217,13 +1541,29 @@ def _cloud_pull(c):
         return -1
     n = 0
     for e in r.get("events", []):
+        if c.execute("SELECT 1 FROM sync_events WHERE event_id=?", (e["event_id"],)).fetchone():
+            cur = max(cur, e["server_sequence"]); continue  # our own events echo back — skip
+        # The cloud's server_sequence is a different counter domain — allocate a
+        # local sequence or LAN devices past that cursor would never see the event.
+        seq = c.execute("UPDATE sync_streams SET next_sequence=next_sequence+1 WHERE branch_id=? RETURNING next_sequence-1",
+                        (DEFAULT_BRANCH,)).fetchone()
+        if not seq:
+            c.execute("INSERT INTO sync_streams(branch_id,next_sequence) VALUES(?,2)", (DEFAULT_BRANCH,)); seq = (1,)
+        payload = dict(e.get("payload") or {}); payload["_cloud_seq"] = e["server_sequence"]
         ins = c.execute("""INSERT OR IGNORE INTO sync_events(event_id,business_id,branch_id,device_id,
             device_sequence,event_type,schema_version,entity_id,device_created_at,payload,
             server_received_at,server_sequence) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (e["event_id"], DEFAULT_BUSINESS, DEFAULT_BRANCH, e.get("device_id"),
+            (e["event_id"], DEFAULT_BUSINESS, DEFAULT_BRANCH, str(e.get("device_id") or ""),
              e.get("device_sequence"), e["event_type"], e.get("schema_version", 1),
-             e.get("entity_id"), e.get("device_created_at"), json.dumps(e.get("payload") or {}),
-             e.get("server_received_at"), e["server_sequence"]))
+             e.get("entity_id"), e.get("device_created_at"), json.dumps(payload),
+             e.get("server_received_at"), seq[0]))
+        if ins.rowcount:
+            try:
+                apply_incoming_event(c, {"id": e.get("device_id"), "device_name": "cloud",
+                                         "business_id": DEFAULT_BUSINESS, "branch_id": DEFAULT_BRANCH},
+                                     {**e, "payload": payload})
+            except Exception as ex:
+                _conflict(c, e, "apply_failed", {"error": str(ex)[:300], "event_type": e.get("event_type")})
         n += ins.rowcount or 0
         cur = max(cur, e["server_sequence"])
     c.execute("INSERT OR REPLACE INTO settings(k,v) VALUES('cloud_pull_seq',?)", (str(cur),))
@@ -1233,11 +1573,16 @@ def _cloud_pull(c):
 @app.get("/api/admin/backup")
 @need_admin
 def backup():
-    import shutil, tempfile
+    import tempfile
+    from flask import send_file, after_this_request
     tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False); tmp.close()
     src = db(); dst = sqlite3.connect(tmp.name); src.backup(dst); dst.close(); src.close()
-    audit(db(), "admin.backup", tmp.name)
-    from flask import send_file
+    ac = db(); audit(ac, "admin.backup", "snapshot"); ac.commit(); ac.close()
+    @after_this_request
+    def _cleanup(response):
+        try: os.remove(tmp.name)  # fd is already open — unlink is safe on POSIX
+        except OSError: pass
+        return response
     return send_file(tmp.name, as_attachment=True, download_name=f"pos-backup-{date.today().isoformat()}.db")
 
 @app.get("/api/admin/audit")

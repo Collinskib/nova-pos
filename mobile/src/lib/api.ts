@@ -35,9 +35,11 @@ export const hub = {
   shiftCurrent: (b: string, k: string) => req<{ shift: any }>(b, "/api/v1/shifts/current", {}, k),
   shiftOpen: (b: string, k: string, body: any) => req(b, "/api/v1/shifts/open", { method: "POST", body }, k),
   shiftClose: (b: string, k: string, count: number) => req<any>(b, "/api/v1/shifts/close", { method: "POST", body: { count } }, k),
+  cashMove: (b: string, k: string, body: any) => req<any>(b, "/api/v1/shifts/cash-move", { method: "POST", body }, k),
   customers: (b: string, k: string) => req<any[]>(b, "/api/v1/customers", {}, k),
   addCustomer: (b: string, k: string, body: any) => req<any>(b, "/api/v1/customers", { method: "POST", body }, k),
   promos: (b: string, k: string) => req<any[]>(b, "/api/v1/promos", {}, k),
+  settings: (b: string, k: string) => req<{ tax_rate: number; currency: string; store_name: string }>(b, "/api/v1/settings", {}, k),
   doPair: (base: string, token: string, name: string) => req<{ ok: boolean; device_id: number; device_key: string; business_id: string; branch_id: string; error?: string }>(
     base, "/api/v1/devices/pair", { method: "POST", body: { token, device_name: name, device_type: "mobile" } }),
   status: (base: string, key: string) => req<any>(base, "/api/v1/sync/status", {}, key),

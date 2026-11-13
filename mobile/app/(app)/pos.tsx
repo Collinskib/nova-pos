@@ -76,7 +76,7 @@ export default function Pos() {
       const lines = items.map(i => ({ name: i.name, qty: i.qty,
         total: Math.round(i.price_cents * i.qty * (1 - (i.discount_qty && i.qty >= i.discount_qty ? (i.discount_pct || 0) / 100 : 0))) }));
       setRc({ no: r.receipt_no, lines, total: r.total_cents, paid,
-        tax: lines.filter(l => items.find(i => i.name === l.name)?.taxable).reduce((a, l) => a + Math.round(l.total * 0.16 / 1.16), 0),
+        tax: r.tax_cents ?? 0,
         change: Math.max(0, paid - r.total_cents), cashier: ctx.cashier_name || "—",
         cust: cust || "Walk-in", disc: discC(), promo: promoCode, at: new Date().toLocaleString() });
       clearCart(); setSheet(false); setPays([{ m: "cash", a: "" }]); setCust(null); setDV(""); setPromo(""); setPromoCode(null); setPromoMsg("");
