@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { View, Text, TextInput, TouchableOpacity, FlatList, Alert, StyleSheet, Modal, Image, Share, ScrollView } from "react-native";
-import { searchProducts, checkout, CartItem, Product } from "../../src/db/repos";
+import { searchProducts, checkout, getState, CartItem, Product } from "../../src/db/repos";
+import { getDb } from "../../src/db/database";
 import { refreshCatalog } from "../../src/sync/engine";
 import { hub, creds } from "../../src/lib/api";
 import { CameraView, useCameraPermissions } from "expo-camera";
@@ -13,7 +14,7 @@ export default function Pos() {
   const [prods, setProds] = useState<Product[]>([]);
 
   const [sheet, setSheet] = useState(false);
-  const { cart, addToCart, setQty, clearCart, cartTotal, ctx, set } = useStore();
+  const { cart, addToCart, setQty, setPrice, clearCart, cartTotal, ctx, set } = useStore();
 
   const [scanning, setScanning] = useState(false);
   const [perm, requestPerm] = useCameraPermissions();
@@ -51,6 +52,22 @@ export default function Pos() {
   const [cust, setCust] = useState<string | null>(null);
   const [custs, setCusts] = useState<any[]>([]);
   const [newC, setNewC] = useState("");
+  const [edit, setEdit] = useState<CartItem | null>(null);
+  const [eq, setEq] = useState("");
+  const [ep, setEp] = useState("");
+  const [biz, setBiz] = useState<Record<string, string>>({});
+  useEffect(() => {   // receipt branding — cached by refreshCatalog as set:* keys
+    (async () => {
+      try {
+        const d = await getDb(), base = await hub.base().catch(() => "");
+        const v = (k: string) => getState(d, "set:" + k).then(x => x || "");
+        const logo = await v("logo_url");
+        setBiz({ store_name: await v("store_name"), store_address: await v("store_address"),
+          store_phone: await v("store_phone"), receipt_footer: await v("receipt_footer"),
+          logo_url: logo ? (/^https?:/.test(logo) ? logo : base + logo) : "" });
+      } catch {}
+    })();
+  }, []);
   const [promo, setPromo] = useState("");
   const [promoCode, setPromoCode] = useState<string | null>(null);
   const [promoMsg, setPromoMsg] = useState("");
@@ -117,8 +134,10 @@ export default function Pos() {
         </TouchableOpacity>)}
       <FlatList data={prods.filter(p => !p.parent_id)} keyExtractor={p => p.id} numColumns={2} contentContainerStyle={{ padding: 8 }}
         refreshing={refreshing} onRefresh={pullRefresh}
-        renderItem={({ item: p }) => (
-          <TouchableOpacity style={s.tile} disabled={p.stock <= 0}
+        renderItem={({ item: p }) => {
+          const inCart = cart[p.id]?.qty || 0, left = p.stock - inCart;
+          return (
+          <TouchableOpacity style={s.tile} disabled={left <= 0}
             onPress={() => { const k = kids(p); const o = (p.pack_size || 0) > 1 ? [...k, { ...p, _pack: 1 }] : k;
               o.length ? setVkids(o) : addToCart({ ...p, price_cents: pp(p) }); }}>
             {p.image
@@ -126,15 +145,19 @@ export default function Pos() {
               : <View style={[s.img, s.imgPh]}><Text style={s.imgPhT}>{p.name.slice(0, 2).toUpperCase()}</Text></View>}
             <Text style={s.nm} numberOfLines={2}>{p.name}</Text>
             <Text style={s.pr}>{fmt(pp(p))}</Text>
-            <Text style={[s.st, p.stock <= 10 && { color: "#f0a51f" }, p.stock <= 0 && { color: "#e05a5a" }]}>
-              {p.stock <= 0 ? "out" : `${p.stock} left`}{cart[p.id] ? `  ×${cart[p.id].qty}` : ""}</Text>
-          </TouchableOpacity>)} />
+            <Text style={[s.st, left <= 10 && { color: "#f0a51f" }, left <= 0 && { color: "#e05a5a" }]}>
+              {left <= 0 ? "out" : `${left} left`}{inCart ? `  ×${inCart} in cart` : ""}</Text>
+          </TouchableOpacity>);
+        }} />
       {items.length > 0 && (
         <View style={s.tray}>
           <FlatList data={items} horizontal keyExtractor={i => i.id} showsHorizontalScrollIndicator={false}
             renderItem={({ item: i }) => (
               <View style={s.ci}>
-                <Text style={s.ciN} numberOfLines={1}>{i.name}</Text>
+                <TouchableOpacity onPress={() => { setEdit(i); setEq(String(i.qty)); setEp((i.price_cents / 100).toFixed(2)); }}>
+                  <Text style={s.ciN} numberOfLines={1}>{i.name}</Text>
+                  <Text style={s.ciP}>{fmt(i.price_cents)} each · tap to edit</Text>
+                </TouchableOpacity>
                 <View style={s.ciR}>
                   <TouchableOpacity onPress={() => setQty(i.id, i.qty - 1)}><Text style={s.ciB}>−</Text></TouchableOpacity>
                   <Text style={s.ciQ}>{i.qty}</Text>
@@ -171,6 +194,28 @@ export default function Pos() {
               <Text style={s.pchipT}>{v._pack ? fmt(v.pack_price_cents ?? pp(v) * v.pack_size) : fmt(pp(v))}{v.stock <= 0 ? " · out" : ` · ${v.stock}`}</Text>
             </TouchableOpacity>))}
           <TouchableOpacity onPress={() => setVkids(null)}><Text style={s.cancel}>Cancel</Text></TouchableOpacity>
+        </View></View>
+      </Modal>
+      <Modal visible={!!edit} transparent animationType="fade">
+        <View style={s.mo}><View style={s.ms}>
+          <Text style={s.msH}>{edit?.name}</Text>
+          <Text style={{ color: "#6d6790", fontSize: 12, marginBottom: 4 }}>
+            Quantity{edit?.stock != null ? ` · ${edit.stock} in stock` : ""}</Text>
+          <TextInput style={[s.cash, { padding: 12, fontSize: 16 }]} keyboardType="decimal-pad"
+            value={eq} onChangeText={setEq} selectTextOnFocus />
+          <Text style={{ color: "#6d6790", fontSize: 12, marginBottom: 4 }}>Unit price (KSh)</Text>
+          <TextInput style={[s.cash, { padding: 12, fontSize: 16 }]} keyboardType="decimal-pad"
+            value={ep} onChangeText={setEp} selectTextOnFocus />
+          <TouchableOpacity style={s.btn} onPress={() => {
+            const qv = parseFloat(eq);
+            setQty(edit!.id, isNaN(qv) ? edit!.qty : qv);
+            const pv = parseFloat(ep);
+            if (!isNaN(pv)) setPrice(edit!.id, pv * 100);
+            setEdit(null);
+          }}><Text style={s.btnT}>Save</Text></TouchableOpacity>
+          <TouchableOpacity onPress={() => { setQty(edit!.id, 0); setEdit(null); }}>
+            <Text style={[s.cancel, { color: "#e05a5a" }]}>Remove from cart</Text></TouchableOpacity>
+          <TouchableOpacity onPress={() => setEdit(null)}><Text style={s.cancel}>Cancel</Text></TouchableOpacity>
         </View></View>
       </Modal>
       <Modal visible={sheet} transparent animationType="slide">
@@ -234,7 +279,10 @@ export default function Pos() {
       <Modal visible={!!rc} transparent animationType="fade">
         <View style={s.mo}><View style={s.ms}>
           <ScrollView style={{ maxHeight: 420 }}>
-            <Text style={s.rcT}>SHUJAAPOS</Text>
+            {biz.logo_url ? <Image source={{ uri: biz.logo_url }} style={s.rcLogo} resizeMode="contain" /> : null}
+            <Text style={s.rcT}>{(biz.store_name || "ShujaaPOS").toUpperCase()}</Text>
+            {(biz.store_address || biz.store_phone)
+              ? <Text style={s.rcS}>{[biz.store_address, biz.store_phone].filter(Boolean).join(" · ")}</Text> : null}
             <Text style={s.rcS}>RECEIPT {rc?.no}</Text>
             <Text style={s.rcS}>{rc?.at} · {rc?.cashier}</Text>
             <View style={s.rcD} />
@@ -252,9 +300,9 @@ export default function Pos() {
             <View style={s.rcR}><Text style={s.rcS}>Cash tendered</Text><Text style={s.rcS}>{fmt(rc?.paid || 0)}</Text></View>
             <View style={s.rcR}><Text style={s.rcS}>Change</Text><Text style={s.rcS}>{fmt(rc?.change || 0)}</Text></View>
             <View style={s.rcD} />
-            <Text style={[s.rcS, { marginVertical: 4 }]}>Thank you!</Text>
+            <Text style={[s.rcS, { marginVertical: 4 }]}>{biz.receipt_footer || "Thank you!"}</Text>
           </ScrollView>
-          <TouchableOpacity style={s.btn} onPress={() => Share.share({ message: rcText(rc) })}>
+          <TouchableOpacity style={s.btn} onPress={() => Share.share({ message: rcText(rc, biz) })}>
             <Text style={s.btnT}>Share receipt</Text></TouchableOpacity>
           <TouchableOpacity onPress={() => setRc(null)}><Text style={s.cancel}>Done</Text></TouchableOpacity>
         </View></View>
@@ -263,12 +311,15 @@ export default function Pos() {
   );
 }
 
-const rcText = (rc: any) => rc ? [
-  "SHUJAAPOS", `RECEIPT ${rc.no}`, `${rc.at} · ${rc.cashier}`, "-".repeat(32),
+const rcText = (rc: any, biz: Record<string, string> = {}) => rc ? [
+  (biz.store_name || "ShujaaPOS").toUpperCase(),
+  ...([biz.store_address, biz.store_phone].filter(Boolean).join(" · ") ? [[biz.store_address, biz.store_phone].filter(Boolean).join(" · ")] : []),
+  `RECEIPT ${rc.no}`, `${rc.at} · ${rc.cashier}`, "-".repeat(32),
   ...rc.lines.map((l: any) => `${l.name} x${l.qty}  KSh ${(l.total / 100).toFixed(2)}`),
+  ...(rc.cust && rc.cust !== "Walk-in" ? [`Customer: ${rc.cust}`] : []),
   "-".repeat(32), `TOTAL   KSh ${(rc.total / 100).toFixed(2)}`,
   `Cash    KSh ${(rc.paid / 100).toFixed(2)}`, `Change  KSh ${(rc.change / 100).toFixed(2)}`,
-  "-".repeat(32), "Thank you!"].join("\n") : "";
+  "-".repeat(32), biz.receipt_footer || "Thank you!"].join("\n") : "";
 
 const s = StyleSheet.create({
   c: { flex: 1, backgroundColor: "#14102b", paddingTop: 56 },
@@ -288,6 +339,8 @@ const s = StyleSheet.create({
   tray: { backgroundColor: "#1e1840", borderTopLeftRadius: 18, borderTopRightRadius: 18, paddingTop: 10 },
   ci: { backgroundColor: "#2a2350", borderRadius: 10, padding: 10, marginHorizontal: 5, width: 140 },
   ciN: { color: "#ece9f8", fontSize: 13 },
+  ciP: { color: "#8b5cf6", fontSize: 10, marginTop: 2 },
+  rcLogo: { width: 120, height: 56, alignSelf: "center", marginBottom: 6 },
   ciR: { flexDirection: "row", alignItems: "center", marginTop: 6, gap: 10 },
   ciB: { color: "#8b5cf6", fontSize: 20, fontWeight: "800", paddingHorizontal: 6 },
   ciQ: { color: "#fff", fontWeight: "700", fontSize: 15 },

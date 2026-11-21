@@ -193,9 +193,12 @@ export async function refreshCatalog() {
   const base = await hub.base();
   const prods = await hub.products(base, c.device_key);
   if (prods.length) await seedProducts({ business: c.business }, prods, base);
-  try {  // till-relevant settings — tax_rate drives offline VAT math
+  try {  // till settings — tax_rate drives offline VAT math; set:* feeds receipt branding
     const st = await hub.settings(base, c.device_key);
-    await setState(await getDb(), "tax_rate", String(st.tax_rate ?? 16));
+    const d = await getDb();
+    await setState(d, "tax_rate", String(st.tax_rate ?? 16));
+    for (const [k, v] of Object.entries(st as any))
+      await setState(d, "set:" + k, String(v ?? ""));
   } catch {}
   return prods.length;
 }

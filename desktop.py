@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """ShujaaPOS desktop launcher — runs the local hub and opens a native window.
 
-Works offline: SQLite lives in the user data dir, hub on 127.0.0.1:5050.
+Works offline: SQLite lives in the user data dir, hub on :5050.
+Phones/tablets on the same Wi-Fi pair to it over LAN (Devices → Pair), so the
+window is bound to 0.0.0.0 — set POS_HOST=127.0.0.1 to keep it local-only.
 Falls back to the system browser if pywebview isn't available.
 """
 import os, sys, threading, time, urllib.request
@@ -11,7 +13,7 @@ _data = os.getenv("APPDATA") or os.path.join(os.path.expanduser("~"), ".local", 
 DB_DIR = os.path.join(_data, "ShujaaPOS")
 os.makedirs(DB_DIR, exist_ok=True)
 os.environ.setdefault("POS_DB", os.path.join(DB_DIR, "pos.db"))
-os.environ.setdefault("POS_HOST", "127.0.0.1")
+os.environ.setdefault("POS_HOST", "0.0.0.0")
 os.environ.setdefault("POS_PORT", "5050")
 
 if getattr(sys, "frozen", False):  # running inside PyInstaller bundle
@@ -23,7 +25,7 @@ BASE = "http://127.0.0.1:5050"
 
 def serve():
     from waitress import serve as ws
-    ws(hub.app, host="127.0.0.1", port=5050, threads=8)
+    ws(hub.app, host=os.environ.get("POS_HOST", "0.0.0.0"), port=5050, threads=8)
 
 if __name__ == "__main__":
     threading.Thread(target=serve, daemon=True).start()

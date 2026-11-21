@@ -13,6 +13,7 @@ type State = {
   set: (p: Partial<State>) => void;
   addToCart: (p: Product) => void;
   setQty: (id: string, qty: number) => void;
+  setPrice: (id: string, cents: number) => void;
   clearCart: () => void;
   cartTotal: () => number;
 };
@@ -23,6 +24,8 @@ export const useStore = create<State>((set, get) => ({
   addToCart: p => set(s => ({ cart: { ...s.cart, [p.id]: { ...p, qty: Math.min((s.cart[p.id]?.qty || 0) + 1, p.stock ?? Infinity) } } })),
   setQty: (id, qty) => set(s => { const c = { ...s.cart };
     if (qty <= 0) delete c[id]; else c[id] = { ...c[id], qty: Math.min(qty, c[id].stock ?? qty) }; return { cart: c }; }),
+  setPrice: (id, cents) => set(s => s.cart[id]
+    ? { cart: { ...s.cart, [id]: { ...s.cart[id], price_cents: Math.max(0, Math.round(cents)) } } } : s),
   clearCart: () => set({ cart: {} }),
   cartTotal: () => Object.values(get().cart).reduce((a, i) =>
     a + Math.round(i.price_cents * i.qty * (1 - (i.discount_qty && i.qty >= i.discount_qty ? (i.discount_pct || 0) / 100 : 0))), 0),

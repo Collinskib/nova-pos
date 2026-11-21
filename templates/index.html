@@ -201,7 +201,7 @@ window.doPay=async(btn,t)=>{const need=Math.max(0,t-(+pdisc.value||0));
     <button class="btn primary" style="flex:2" onclick="print()">Print receipt</button></div>`);
   toast(`Sale ${r.invoice} · change ${money(r.change)}`)}
   catch(e){btn.disabled=false;btn.textContent='Complete sale'}};
-const rcHtml=rc=>`<h4>${esc(rc.settings.store_name)}</h4><p class="c">${esc(rc.settings.store_address)}<br>${esc(rc.settings.store_phone)}</p><hr>
+const rcHtml=rc=>`${rc.settings.logo_url?`<img src="${esc(rc.settings.logo_url)}" style="display:block;margin:0 auto 4px;max-width:130px;max-height:56px">`:''}<h4>${esc(rc.settings.store_name)}</h4><p class="c">${esc(rc.settings.store_address)}<br>${esc(rc.settings.store_phone)}</p><hr>
   <table>${rc.items.map(i=>`<tr><td>${esc(i.name)} ×${i.qty}</td><td style="text-align:right">${money(i.total)}</td></tr>`).join('')}</table><hr>
   <table>${rc.sale.discount>0?`<tr><td>Discounts</td><td style="text-align:right">−${money(rc.sale.discount)}</td></tr>`:''}
   <tr><td>Subtotal (excl. VAT)</td><td style="text-align:right">${money(rc.sale.total-(rc.sale.vat||0))}</td></tr>
@@ -209,7 +209,7 @@ const rcHtml=rc=>`<h4>${esc(rc.settings.store_name)}</h4><p class="c">${esc(rc.s
   <tr><td><b>Total</b></td><td style="text-align:right"><b>${money(rc.sale.total)}</b></td></tr>
   <tr><td>Cash</td><td style="text-align:right">${money(rc.sale.cash)}</td></tr>
   <tr><td>Change</td><td style="text-align:right">${money(rc.sale.change_due)}</td></tr></table><hr>
-  <p class="c">${rc.sale.invoice_no} · ${td(rc.sale.created)}<br>Served by ${esc(rc.sale.cashier||'')}</p>`;
+  <p class="c">${rc.sale.invoice_no} · ${td(rc.sale.created)}<br>Served by ${esc(rc.sale.cashier||'')}</p>${rc.settings.receipt_footer?`<hr><p class="c">${esc(rc.settings.receipt_footer)}</p>`:''}`;
 
 /* ---------- Products ---------- */
 async function pgProducts(){
@@ -338,14 +338,14 @@ window.viewRc=async id=>{const rc=await api('/api/receipt/'+id);modal(`<h3>${rc.
 window.printRc=async id=>{const rc=await api('/api/receipt/'+id);const s=rc.sale,st=rc.settings;
   const w=window.open('','_blank','width=320,height=600');
   w.document.write(`<html><head><title>Receipt ${s.invoice_no}</title><style>body{font-family:monospace;font-size:12px;margin:16px;max-width:280px}h3,p{text-align:center;margin:2px 0}table{width:100%;border-collapse:collapse;margin:8px 0}td{padding:2px 0}.tot{border-top:1px dashed #000;font-weight:700}</style></head><body>
-  <h3>${esc(st.store_name||'ShujaaPOS')}</h3><p>${esc(st.store_address||'')}<br>${esc(st.store_phone||'')}</p>
+  ${st.logo_url?`<img src="${esc(st.logo_url)}" style="display:block;margin:0 auto 6px;max-width:200px;max-height:72px">`:''}<h3>${esc(st.store_name||'ShujaaPOS')}</h3><p>${esc(st.store_address||'')}<br>${esc(st.store_phone||'')}</p>
   <p>Receipt <b>${s.invoice_no}</b> · ${td(s.created)}${s.status==='void'?' · <b>VOID</b>':''}</p>
   <table>${rc.items.map(i=>`<tr><td>${esc(i.name)} ×${i.qty}</td><td style="text-align:right">${money(i.total)}</td></tr>`).join('')}
   <tr><td class="tot">TOTAL</td><td class="tot" style="text-align:right">${money(s.total)}</td></tr>
   <tr><td>Cash</td><td style="text-align:right">${money(s.cash)}</td></tr>
   <tr><td>Change</td><td style="text-align:right">${money(s.change_due)}</td></tr>
   <tr><td>VAT incl.</td><td style="text-align:right">${money(s.vat)}</td></tr></table>
-  <p>Thank you!</p><script>window.onload=()=>{window.print()}<\/script></body></html>`);
+  <p>${esc(st.receipt_footer||'Thank you!')}</p><script>window.onload=()=>{window.print()}<\/script></body></html>`);
   w.document.close()};
 window.voidSale=async id=>confirmM('Void this sale? Stock will be returned to the shelf.',async()=>{await api(`/api/sales/${id}/void`,{method:'POST'});toast('Sale voided');pgOrders()});
 
@@ -496,8 +496,15 @@ async function pgSettings(){
   <div class="row"><label>Phone<input name="store_phone" value="${esc(s.store_phone)}" ${adm?'':'disabled'}></label>
   <label>Currency symbol<input name="currency" value="${esc(s.currency)}" ${adm?'':'disabled'}></label>
   <label>VAT rate %<input name="tax_rate" type="number" step="0.01" value="${esc(s.tax_rate)}" ${adm?'':'disabled'}></label></div>
+  <label>Receipt logo<input name="logo_url" id="stlogo" value="${esc(s.logo_url||'')}" placeholder="https://… or upload →" ${adm?'':'disabled'}></label>
+  ${adm?`<div class="row" style="align-items:center;gap:12px;margin-top:-6px"><img id="stlprev" src="${esc(s.logo_url||'')}" style="width:56px;height:56px;object-fit:contain;${s.logo_url?'':'visibility:hidden'}" onload="this.style.visibility='visible'" onerror="this.style.visibility='hidden'">
+    <label class="btn small" style="cursor:pointer;margin:0">📁 Upload logo<input type="file" accept="image/*" hidden onchange="logoUp(this)"></label></div>`:''}
+  <label>Receipt footer<input name="receipt_footer" value="${esc(s.receipt_footer||'')}" placeholder="e.g. Karibu tena! Goods sold are not returnable." ${adm?'':'disabled'}></label>
   ${adm?'<button class="btn primary block">Save settings</button>':'<p class="hint">Admin access required to edit.</p>'}</form></div>`;
 }
+window.logoUp=async el=>{const f=el.files[0];if(!f)return;const r=new FileReader();
+  r.onload=async()=>{const u=await api('/api/upload',{method:'POST',body:{data:r.result}});
+    stlogo.value=u.url;stlprev.src=u.url;toast('Logo uploaded')};r.readAsDataURL(f)};
 window.stSave=async e=>{e.preventDefault();await api('/api/settings',{method:'PUT',body:Object.fromEntries(new FormData(e.target))});toast('Saved');pgSettings()};
 
 boot();

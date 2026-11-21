@@ -1369,8 +1369,8 @@ def device_promos():
 def device_settings():
     """Till-relevant settings for devices — tax rate drives offline VAT math."""
     s = {r["k"]: r["v"] for r in db().execute("SELECT * FROM settings")}
-    return jsonify({"tax_rate": float(s.get("tax_rate") or 0), "currency": s.get("currency") or "KSh ",
-                    "store_name": s.get("store_name") or ""})
+    return jsonify({**s, "tax_rate": float(s.get("tax_rate") or 0),
+                    "currency": s.get("currency") or "KSh ", "store_name": s.get("store_name") or ""})
 
 # ---------- Synchronization (§8) ----------
 @app.get("/api/sync/conflicts")
