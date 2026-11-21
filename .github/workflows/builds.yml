@@ -5,6 +5,9 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+permissions:
+  contents: write   # tag runs attach artifacts to a GitHub Release
+
 jobs:
   desktop:
     runs-on: ${{ matrix.os }}
