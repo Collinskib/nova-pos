@@ -639,6 +639,16 @@ def checkout():
                 unit, suffix = float(p2["price_wholesale"]), ""
             else:
                 unit, suffix = float(p2["price"]), ""
+            # Explicit per-line override (till sets price at sale time) — honored
+            # only under its own key and audit-logged, so it stays reviewable.
+            if i.get("override_price") is not None:
+                try:
+                    op = round(float(i["override_price"]), 2)
+                    if op >= 0:
+                        unit = op
+                        audit(c, "sale.price_override", f"{p2['name']} → {op}")
+                except (TypeError, ValueError):
+                    pass
             name = p2["name"] + (f" · {p2['variant_label']}" if p2["variant_label"] else "") + suffix
             gross += unit * qty
             line = round(unit * qty * (1 - (p2["discount_pct"] or 0) / 100 if p2["discount_qty"] and qty >= p2["discount_qty"] else 1), 2)

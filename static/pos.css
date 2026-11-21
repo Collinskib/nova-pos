@@ -133,6 +133,7 @@ tr:last-child td{border:0}
 .ci{display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--row);font-size:13.5px}
 .ci .nm{flex:1}.ci .q{display:flex;align-items:center;gap:6px}
 .ci .q button{width:24px;height:24px;border-radius:6px;border:1px solid var(--line);background:var(--panel2);color:var(--text);cursor:pointer}
+.ci .qin{width:46px;text-align:center;border:1px solid var(--line);border-radius:6px;background:var(--panel2);color:var(--text);padding:3px 0;font:inherit}
 .total{display:flex;justify-content:space-between;font-size:18px;font-weight:700;padding:14px 0}
 
 /* modal */

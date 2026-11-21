@@ -138,7 +138,7 @@ async function pgPos(){
     <button class="btn primary" style="flex:2" onclick="pay()">Charge</button></div></div></div>
   <div class="mbar" id="mbar"><b id="mbt"></b><button class="btn primary" style="padding:9px 20px" onclick="pay()">Charge</button></div>`;
   const load=async()=>{S.products=await api('/api/lookup?q='+encodeURIComponent(ps.value));
-    pg.innerHTML=S.products.filter(p=>!p.parent_id).map(p=>`<button class="pitem" onclick="pick(${p.id})">${p.image?`<img class="pimg" src="${esc(p.image)}" loading="lazy" onerror="this.remove()">`:'<div class="pimg ph">📦</div>'}<div class="nm">${esc(p.name)}</div><div class="pr">${money(pp(p))}</div><div class="st ${p.stock<=10?'low':''}">${p.stock} in stock${p.barcode?' · '+esc(p.barcode):''}</div>${p.discount_qty>0?`<div class="deal">Buy ${p.discount_qty}+ save ${p.discount_pct}%</div>`:''}</button>`).join('')||'<p class="hint">No products match</p>'};
+    pg.innerHTML=S.products.filter(p=>!p.parent_id).map(p=>{const ic=S.cart.find(i=>i.id===p.id)?.qty||0,l=p.stock-ic;return `<button class="pitem" onclick="pick(${p.id})" ${l<=0?'disabled':''}>${p.image?`<img class="pimg" src="${esc(p.image)}" loading="lazy" onerror="this.remove()">`:'<div class="pimg ph">📦</div>'}<div class="nm">${esc(p.name)}</div><div class="pr">${money(pp(p))}</div><div class="st ${l<=10?'low':''}">${l<=0?'out of stock':l+' in stock'}${ic?' · '+ic+' in cart':''}${p.barcode?' · '+esc(p.barcode):''}</div>${p.discount_qty>0?`<div class="deal">Buy ${p.discount_qty}+ save ${p.discount_pct}%</div>`:''}</button>`}).join('')||'<p class="hint">No products match</p>'};
   window.loadPos=load; ps.oninput=load; ps.onkeydown=e=>{if(e.key==='Enter'&&S.products[0]){addItem(S.products[0].id);ps.value='';load()}};
   ps.focus(); load(); heldCount();
 }
@@ -147,7 +147,8 @@ const pp=p=>S.plist==='w'&&p.price_wholesale!=null?p.price_wholesale:p.price;
 window.setPlist=m=>{S.plist=m;if(window.loadPos)loadPos()};
 window.addItem=id=>{const p=S.products.find(x=>x.id===id);const it=S.cart.find(x=>x.id===id);
   if(p.stock<=0)return toast('Out of stock',1);
-  it?it.qty++:S.cart.push({id,name:p.name,price:pp(p),qty:1,taxable:p.taxable??1,dq:p.discount_qty||0,dp:p.discount_pct||0});drawCart()};
+  if(it){if(it.qty<p.stock)it.qty++;else return toast('Only '+p.stock+' × '+p.name+' in stock',1)}
+  else S.cart.push({id,name:p.name,price:pp(p),qty:1,taxable:p.taxable??1,dq:p.discount_qty||0,dp:p.discount_pct||0});drawCart()};
 window.pick=id=>{const p=S.products.find(x=>x.id===id);const opts=S.products.filter(x=>x.parent_id===id);
   if(p.pack_size>1)opts.push({...p,_pack:1});
   if(!opts.length)return addItem(id);
@@ -159,16 +160,30 @@ window.pickOpt=id=>{closeM();
     S.cart.push({id:p.id,pack:1,name:p.name+` · pack ×${p.pack_size}`,price:up,qty:p.pack_size,taxable:p.taxable??1,dq:0,dp:0});drawCart();return}
   const p=S.products.find(x=>x.id===+id);const it=S.cart.find(x=>x.id===+id);
   const nm=p.variant_label?p.name+' · '+p.variant_label:p.name;
-  it?it.qty++:S.cart.push({id:+id,name:nm,price:pp(p),qty:1,taxable:p.taxable??1,dq:p.discount_qty||0,dp:p.discount_pct||0});drawCart()};
+  if(it){if(it.qty<p.stock)it.qty++;else return toast('Only '+p.stock+' × '+p.name+' in stock',1)}
+  else S.cart.push({id:+id,name:nm,price:pp(p),qty:1,taxable:p.taxable??1,dq:p.discount_qty||0,dp:p.discount_pct||0});drawCart()};
 const lineOf=i=>i.price*i.qty*(i.dq>0&&i.qty>=i.dq?1-(i.dp||0)/100:1);
 const totOf=()=>S.cart.reduce((a,i)=>a+lineOf(i),0);
 const vatOf=()=>{const r=+(S.boot.settings.tax_rate||0);return S.cart.reduce((a,i)=>a+(i.taxable?lineOf(i)*r/(100+r):0),0)};
-window.drawCart=()=>{ci.innerHTML=S.cart.map((i,x)=>`<div class="ci"><span class="nm">${esc(i.name)}${i.dq>0&&i.qty>=i.dq?` <span class="badge ok">−${i.dp}%</span>`:''}</span><span class="q"><button onclick="cq(${x},-1)">−</button><b>${i.qty}</b><button onclick="cq(${x},1)">+</button></span><b style="width:64px;text-align:right">${money(lineOf(i))}</b></div>`).join('')||'<p class="hint">Cart is empty</p>';
+window.drawCart=()=>{ci.innerHTML=S.cart.map((i,x)=>`<div class="ci"><span class="nm">${esc(i.name)}${i.ovr?` <span class="badge warn">set price</span>`:''}${i.dq>0&&i.qty>=i.dq?` <span class="badge ok">−${i.dp}%</span>`:''}</span><span class="q"><button onclick="cq(${x},-1)">−</button><input class="qin" type="number" min="0" step="any" value="${i.qty}" onchange="sq(${x},this.value)"><button onclick="cq(${x},1)">+</button></span><b style="width:64px;text-align:right;cursor:pointer" title="Click to set unit price" onclick="sp(${x})">${money(lineOf(i))}</b></div>`).join('')||'<p class="hint">Cart is empty</p>';
   ct.textContent=money(totOf());
   cvat.textContent=vatOf()>0.004?`incl. VAT ${S.boot.settings.tax_rate}% · ${money(vatOf())}`:'';
   const mb=document.getElementById('mbar');if(mb){const n=S.cart.reduce((a,i)=>a+i.qty,0);
     mb.classList.toggle('show',n>0);document.getElementById('mbt').textContent=n+(n===1?' item':' items')+' · '+money(totOf())}};
-window.cq=(x,d)=>{S.cart[x].qty+=d;if(S.cart[x].qty<=0)S.cart.splice(x,1);drawCart()};
+window.cq=(x,d)=>{const i=S.cart[x];if(!i)return;const p=S.products.find(y=>y.id===i.id);
+  i.qty+=d;
+  if(i.qty<=0)S.cart.splice(x,1);
+  else if(p&&i.qty>p.stock){i.qty=p.stock;toast('Only '+p.stock+' × '+p.name+' in stock')}
+  drawCart()};
+window.sq=(x,v)=>{const i=S.cart[x];if(!i)return;const n=parseFloat(v),p=S.products.find(y=>y.id===i.id);
+  if(!(n>0))S.cart.splice(x,1);
+  else i.qty=p&&p.stock!=null?Math.min(n,p.stock):n;
+  drawCart()};
+window.sp=x=>{const i=S.cart[x];if(!i)return;
+  const v=prompt('Unit price for '+i.name,i.price);
+  if(v==null)return;const n=parseFloat(v);
+  if(!(n>=0))return toast('Enter a valid price');
+  i.price=n;i.ovr=1;drawCart()};
 window.pay=async()=>{const t=totOf();if(!t)return;if(!S.custs)S.custs=await api('/api/customers');
   modal(`<h3>Settle payment</h3><p class="sub" style="margin-bottom:12px">Total due <b>${money(t)}</b></p>
     <div class="row"><label>Method<select id="pm"><option>cash</option><option>mpesa</option><option>card</option><option>credit</option></select></label>
@@ -193,7 +208,7 @@ window.heldCount=async()=>{const hs=await api('/api/held');const b=document.getE
 window.doPay=async(btn,t)=>{const need=Math.max(0,t-(+pdisc.value||0));
   if(pm.value!=='credit'&&+cash.value<need)return toast('Cash received is less than the total',1);
   btn.disabled=true;btn.textContent='Charging…';
-  try{const r=await api('/api/checkout',{method:'POST',body:{items:S.cart,cash:+cash.value||need,method:pm.value,price_list:S.plist==='w'?'wholesale':'retail',customer_name:pcust.value||undefined,discount:+pdisc.value||0,promo_code:(ppromo.value||'').trim().toUpperCase()||undefined}});
+  try{const r=await api('/api/checkout',{method:'POST',body:{items:S.cart.map(i=>({...i,override_price:i.ovr?i.price:undefined})),cash:+cash.value||need,method:pm.value,price_list:S.plist==='w'?'wholesale':'retail',customer_name:pcust.value||undefined,discount:+pdisc.value||0,promo_code:(ppromo.value||'').trim().toUpperCase()||undefined}});
   closeM();S.cart=[];pgPos();
   const rc=await api('/api/receipt/'+r.id);
   modal(`<h3>Receipt · ${r.invoice}</h3><div class="rc" id="rc">${rcHtml(rc)}</div>

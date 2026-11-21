@@ -85,6 +85,7 @@ a{color:var(--acc2)}
 .cl{display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px}
 .cl:last-child{border:0}
 .cl .qn{font-weight:800;color:var(--acc2);min-width:26px}
+.qedit{width:44px;text-align:center;border:1px solid var(--line2);border-radius:7px;background:var(--card2);color:var(--text);padding:3px 2px;font:inherit;font-weight:800}
 .cl .qp{margin-left:auto;color:var(--mut)}
 .cl .rm{color:var(--mut);font-size:15px;padding:4px 7px;border-radius:7px;line-height:1}
 .cl .rm:hover{color:var(--bad);background:#fbe9ea}
@@ -463,9 +464,10 @@ const gridList = () => {
   return _prods.filter(p => !q || p.name.toLowerCase().includes(q) || (p.barcode || "").toLowerCase().includes(q));
 };
 function drawGrid() {
-  document.getElementById("pg").innerHTML = gridList().map(p => `<button class="tile" data-pid="${p.id}" ${p.stock <= 0 ? "disabled" : ""}>
-    <span class="tn">${esc(p.name)}</span><span class="ts ${p.stock <= 10 ? 'low' : ''}">${p.stock <= 0 ? 'out of stock' : p.stock + ' left'}</span>
-    <span class="tp">${ksh(p.selling_price)}</span></button>`).join("")
+  document.getElementById("pg").innerHTML = gridList().map(p => { const ic = cart[p.id]?.qty || 0, l = p.stock - ic;
+    return `<button class="tile" data-pid="${p.id}" ${l <= 0 ? "disabled" : ""}>
+    <span class="tn">${esc(p.name)}</span><span class="ts ${l <= 10 ? 'low' : ''}">${l <= 0 ? 'out of stock' : l + ' left'}${ic ? ' · ' + ic + ' in cart' : ''}</span>
+    <span class="tp">${ksh(p.selling_price)}</span></button>`}).join("")
     || '<p class="mut">No products match — clear the search.</p>';
   document.getElementById("pg").onclick = e => {
     const t = e.target.closest(".tile[data-pid]");
@@ -477,30 +479,37 @@ function addCartId(id) {
   if (!p || p.stock <= 0) return;
   const have = cart[id]?.qty || 0;
   if (have + 1 > p.stock) return say(`Only ${p.stock} × ${esc(p.name)} left.`, "err");
-  cart[id] = {p, qty: have + 1};
-  renderCart();
+  cart[id] = {p, qty: have + 1, price: p.selling_price};
+  renderCart(); drawGrid();
 }
-function decCart(id) { if (--cart[id].qty <= 0) delete cart[id]; renderCart(); }
-function rmCart(id) { delete cart[id]; renderCart(); }
+function decCart(id) { if (--cart[id].qty <= 0) delete cart[id]; renderCart(); drawGrid(); }
+function rmCart(id) { delete cart[id]; renderCart(); drawGrid(); }
+function sqCart(id, v) { const x = cart[id]; if (!x) return; const n = parseFloat(v);
+  if (!(n > 0)) delete cart[id]; else x.qty = Math.min(n, x.p.stock ?? n); renderCart(); drawGrid(); }
+function spCart(id) { const x = cart[id]; if (!x) return;
+  const v = prompt(`Unit price for ${x.p.name}`, x.price); if (v == null) return;
+  const n = parseFloat(v); if (!(n >= 0)) return say("Enter a valid price.", "err");
+  x.price = n; renderCart(); }
 function addCart2(id) {
   const x = cart[id];
-  if (x && x.qty + 1 <= x.p.stock) { x.qty++; renderCart(); }
+  if (x && x.qty + 1 <= x.p.stock) { x.qty++; renderCart(); drawGrid(); }
   else if (x) say(`Only ${x.p.stock} × ${esc(x.p.name)} left.`, "err");
 }
 function clearCart() {
   if (!Object.keys(cart).length) return;
-  cart = {}; renderCart();
+  cart = {}; renderCart(); drawGrid();
 }
 function renderCart() {
   const rows = Object.values(cart);
   document.getElementById("cart").innerHTML = rows.map(x => `<div class="cl">
-    <span class="qn">${x.qty}×</span><span>${esc(x.p.name)}</span>
-    <span class="qp">${ksh(x.qty * x.p.selling_price)}</span>
+    <span class="qn"><input class="qedit" type="number" min="0" step="any" value="${x.qty}"
+      onchange="sqCart('${x.p.id}',this.value)" aria-label="Quantity">×</span><span>${esc(x.p.name)}${x.price !== x.p.selling_price ? ' <span class="mut" style="font-size:11px">· set price</span>' : ''}</span>
+    <span class="qp" title="Tap to set unit price" onclick="spCart('${x.p.id}')" style="cursor:pointer">${ksh(x.qty * x.price)}</span>
     <button class="step" onclick="decCart('${x.p.id}')" aria-label="Decrease">−</button>
     <button class="step" onclick="addCart2('${x.p.id}')" aria-label="Increase">+</button>
     <button class="rm" onclick="rmCart('${x.p.id}')" aria-label="Remove ${esc(x.p.name)}">✕</button></div>`).join("")
     || '<p class="mut" style="font-size:14px;padding:8px 0">Tap products or scan a barcode to add.</p>';
-  const total = rows.reduce((a, x) => a + x.qty * x.p.selling_price, 0);
+  const total = rows.reduce((a, x) => a + x.qty * (x.price ?? x.p.selling_price), 0);
   document.getElementById("ct").textContent = ksh(total);
   document.getElementById("chg").textContent = rows.length ? `Charge ${ksh(total)}` : "Charge";
   document.getElementById("chg").disabled = !rows.length;
@@ -514,7 +523,7 @@ function chgPrev() {
   const el = document.getElementById("chline");
   if (!el) return;
   const rows = Object.values(cart);
-  const total = rows.reduce((a, x) => a + x.qty * x.p.selling_price, 0);
+  const total = rows.reduce((a, x) => a + x.qty * (x.price ?? x.p.selling_price), 0);
   const t = +document.getElementById("tender").value;
   el.classList.remove("neg");
   if (!t || payM !== "cash") { el.textContent = ""; return; }
@@ -549,7 +558,7 @@ function parkCart() {
 function parkSave() {
   const label = document.getElementById("parkname").value.trim() || "Customer";
   const l = held();
-  l.push({label, ts: Date.now(), items: Object.values(cart).map(x => ({id: x.p.id, qty: x.qty}))});
+  l.push({label, ts: Date.now(), items: Object.values(cart).map(x => ({id: x.p.id, qty: x.qty, price: x.price}))});
   saveHeld(l); cart = {}; closeM(); renderCart(); heldBtn();
   say(`Parked for ${esc(label)} — recall it from Held.`, "okm");
 }
@@ -568,7 +577,7 @@ function recallHeld(i) {
   cart = {};
   (h.items || []).forEach(x => {
     const p = _prods.find(pr => pr.id === x.id);
-    if (p) cart[x.id] = {p, qty: Math.min(x.qty, p.stock || x.qty)};
+    if (p) cart[x.id] = {p, qty: Math.min(x.qty, p.stock || x.qty), price: x.price ?? p.selling_price};
   });
   closeM(); renderCart(); heldBtn();
   say(`Recalled ${esc(h.label)}.`, "okm");
@@ -602,7 +611,7 @@ async function pay() {
   const btn = document.getElementById("chg");
   if (!rows.length || btn.disabled) return;
   const method = payM;
-  const total = rows.reduce((a, x) => a + x.qty * x.p.selling_price, 0);
+  const total = rows.reduce((a, x) => a + x.qty * (x.price ?? x.p.selling_price), 0);
   const tn = +document.getElementById("tender").value;
   const tendered = tn || (method === "credit" ? 0 : total);
   if (method === "cash" && tendered < total) return say("Tendered amount is less than the total.", "err");
@@ -611,7 +620,7 @@ async function pay() {
   if (method === "credit" && !customer) return say("Credit sales need a customer name.", "err");
   btn.disabled = true; btn.textContent = "Charging…";
   const payload = {
-    items: rows.map(x => ({product_id: x.p.id, qty: x.qty, unit_price: x.p.selling_price})),
+    items: rows.map(x => ({product_id: x.p.id, qty: x.qty, unit_price: x.price ?? x.p.selling_price})),
     payments: [{method, amount: tendered}],
     tendered,
     branch_id: curBranch || undefined,
